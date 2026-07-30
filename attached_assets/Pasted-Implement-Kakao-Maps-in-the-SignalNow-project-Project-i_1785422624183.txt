@@ -1,0 +1,131 @@
+Implement Kakao Maps in the SignalNow project.
+
+Project information:
+- React + Vite + TypeScript application
+- Tailwind CSS + shadcn UI
+- Already deployed on Replit
+- Kakao Maps JavaScript API is activated
+- The API key is already stored in Replit Secrets as:
+
+VITE_KAKAO_MAP_KEY
+
+Goal:
+Replace the current fake/placeholder map with a real Kakao Map.
+
+Requirements:
+
+1. Kakao Maps SDK integration
+- Load Kakao Maps JavaScript SDK correctly.
+- Use the environment variable:
+  import.meta.env.VITE_KAKAO_MAP_KEY
+- Never hardcode the API key.
+- Do not expose the key in source code.
+- Prevent duplicate SDK loading.
+- Handle SDK loading errors gracefully.
+
+2. Create a reusable map component
+
+Create:
+
+src/components/map/
+- KakaoMap.tsx
+- SignalMarker.tsx
+- CurrentLocationButton.tsx
+- MapControls.tsx
+
+Create hooks:
+
+src/hooks/
+- useKakaoLoader.ts
+- useCurrentLocation.ts
+
+3. Display the Kakao Map
+
+Replace the existing placeholder map.
+
+Map settings:
+- Initial center: South Korea
+- Latitude: 36.5
+- Longitude: 127.8
+- Initial zoom level: 13
+
+Features:
+- Zoom controls
+- Map type control
+- Scale control
+- Smooth map loading animation
+
+4. Responsive design
+
+The map must work well on:
+- Desktop
+- Tablet
+- Mobile
+
+Keep the existing SignalNow UI design.
+Do not redesign the application.
+
+5. Current location feature
+
+Add a current location button.
+
+Use browser Geolocation API.
+
+When clicked:
+- Ask for location permission
+- Move map to user's location
+- Show user's location marker
+
+Handle:
+- Permission denied
+- GPS errors
+- Unsupported browsers
+
+6. Prepare traffic signal markers
+
+Create a reusable marker system for future traffic signal data.
+
+Create this TypeScript interface:
+
+TrafficSignal {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  status: "RED" | "YELLOW" | "GREEN";
+  remainingSeconds?: number;
+}
+
+The map should be able to display many signal markers.
+
+7. Marker interaction
+
+When a traffic signal marker is clicked:
+Show an information panel containing:
+
+- Signal name
+- Current status
+- Remaining seconds
+- Location
+
+Use test data for now.
+
+8. Performance
+
+Optimize for future use with hundreds of markers.
+
+Apply:
+- React hooks correctly
+- Cleanup Kakao Map event listeners
+- Avoid unnecessary re-renders
+- Avoid recreating the map instance
+
+9. Testing
+
+After implementation:
+- Run npm run build
+- Fix all TypeScript/build errors
+- Confirm Kakao Map appears correctly in Replit preview
+
+Do not modify unrelated features.
+Only replace the current map with a production-ready Kakao Map integration.

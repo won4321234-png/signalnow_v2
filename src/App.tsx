@@ -3,13 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { FloatingButton } from "@/components/FloatingButton";
 import { Header } from "@/components/Header";
-import { MapPlaceholder } from "@/components/MapPlaceholder";
+import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
 import { fetchIntersections, findIntersection } from "@/services/intersectionService";
 import type {
   DataStatus,
   Intersection,
-  TrafficMarkerData,
   ViewMode,
 } from "@/types/traffic";
 
@@ -24,7 +23,6 @@ type Page = "map" | "mypage" | "settings";
 
 function AppInner() {
   const [intersections, setIntersections] = useState<Intersection[]>([]);
-  const [markers, setMarkers] = useState<TrafficMarkerData[]>([]);
   const [status, setStatus] = useState<DataStatus>("idle");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -39,7 +37,6 @@ function AppInner() {
     try {
       const result = await fetchIntersections();
       setIntersections(result.intersections);
-      setMarkers(result.markers);
       setStatus("success");
     } catch {
       setStatus("error");
@@ -86,8 +83,7 @@ function AppInner() {
         <div className="relative h-full w-full">
           {/* Map fills viewport, with right padding when panel open on desktop */}
           <div className={`absolute inset-0 transition-[padding] duration-300 ease-out ${sheetOpen ? "lg:pr-[360px]" : "lg:pr-0"}`}>
-            <MapPlaceholder
-              markers={markers}
+            <KakaoMap
               intersections={intersections}
               selectedIntersectionId={selectedId}
               favoriteIds={favorites}

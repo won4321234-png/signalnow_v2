@@ -341,6 +341,13 @@
     -webkit-backdrop-filter: blur(24px) saturate(1.5);
   }
 
+  /* Kakao Maps signal marker — show label on desktop hover */
+  @media (min-width: 1024px) {
+    .kakao-signal-marker:hover .kakao-marker-label {
+      opacity: 1 !important;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-marker-enter, .animate-pin-enter,
     .animate-marker-pulse, .animate-marker-pulse-delayed,
