@@ -133,7 +133,7 @@ function extractDirectionalSignals(record: KlidSignalRecord): TrafficSignal[] {
     ["West", {
       Bus: { remainingSeconds: toNumber(record.wtBssgRmndCs), state: normalizeState(record.wtBssgSttsNm) },
       Bicycle: { remainingSeconds: toNumber(record.wtBcsgRmndCs), state: normalizeState(record.wtBcsgSttsNm) },
-      "Left Turn": { remainingSeconds: toNumber(record.wtPdsgRmndCs), state: normalizeState(record.wtPdsgSttsNm) },
+      "Left Turn": { remainingSeconds: toNumber(record.wtLtsgRmndCs), state: normalizeState(record.wtLtsgSttsNm) },
       Pedestrian: { remainingSeconds: toNumber(record.wtPdsgRmndCs), state: normalizeState(record.wtPdsgSttsNm) },
       Straight: { remainingSeconds: toNumber(record.wtStsgRmndCs), state: normalizeState(record.wtStsgSttsNm) },
       "U Turn": { remainingSeconds: toNumber(record.wtUtsgRmndCs), state: normalizeState(record.wtUtsgSttsNm) },
