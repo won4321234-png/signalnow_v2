@@ -34,15 +34,6 @@ interface IntersectionSeed {
   totDt?: string;
 }
 
-interface SignalSeed {
-  crsrdId: string;
-  direction: ApproachDirection;
-  movement: MovementType;
-  state: SignalPhaseState;
-  remainingSeconds: number;
-  cycleSeconds: number;
-}
-
 interface LoaderOptions {
   onBatch?: (intersections: Intersection[]) => void;
   signalEnabled?: boolean;
@@ -50,7 +41,7 @@ interface LoaderOptions {
 
 const intersectionPageCache = new Map<number, KlidIntersectionRecord[]>();
 const intersectionCache = new Map<string, Intersection>();
-const signalCache = new Map<string, SignalSeed[]>();
+const signalCache = new Map<string, TrafficSignal[]>();
 const signalPromiseCache = new Map<string, Promise<TrafficSignal[]>>();
 
 let intersectionLoadPromise: Promise<Intersection[]> | null = null;
@@ -142,7 +133,7 @@ function extractDirectionalSignals(record: KlidSignalRecord): TrafficSignal[] {
     ["West", {
       Bus: { remainingSeconds: toNumber(record.wtBssgRmndCs), state: normalizeState(record.wtBssgSttsNm) },
       Bicycle: { remainingSeconds: toNumber(record.wtBcsgRmndCs), state: normalizeState(record.wtBcsgSttsNm) },
-      "Left Turn": { remainingSeconds: toNumber(record.wtLtsgRmndCs), state: normalizeState(record.wtLtsgSttsNm) },
+      "Left Turn": { remainingSeconds: toNumber(record.wtPdsgRmndCs), state: normalizeState(record.wtPdsgSttsNm) },
       Pedestrian: { remainingSeconds: toNumber(record.wtPdsgRmndCs), state: normalizeState(record.wtPdsgSttsNm) },
       Straight: { remainingSeconds: toNumber(record.wtStsgRmndCs), state: normalizeState(record.wtStsgSttsNm) },
       "U Turn": { remainingSeconds: toNumber(record.wtUtsgRmndCs), state: normalizeState(record.wtUtsgSttsNm) },
