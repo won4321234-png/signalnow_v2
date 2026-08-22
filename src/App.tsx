@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { FloatingButton } from "@/components/FloatingButton";
 import { Header } from "@/components/Header";
@@ -28,8 +28,10 @@ function AppInner() {
   const [page, setPage] = useState<Page>("map");
   const [signalLoadingId, setSignalLoadingId] = useState<string | null>(null);
   const [signalStatuses, setSignalStatuses] = useState<Map<string, SignalStatus>>(new Map());
+  const lastViewportRef = useRef<MapViewportBounds | null>(null);
 
   const handleViewportChange = useCallback(async (bounds: MapViewportBounds) => {
+    lastViewportRef.current = bounds;
     setStatus("loading");
     try {
       const visible = await fetchIntersectionsForViewport(bounds);
@@ -86,6 +88,7 @@ function AppInner() {
   const handleSettingsClick = useCallback(() => setPage("settings"), []);
   const selectedSignalStatus = selectedId ? signalStatuses.get(selectedId) ?? "idle" : "idle";
   const retrySignal = useCallback(() => { if (selectedId) setSignalStatuses((prev) => { const next = new Map(prev); next.delete(selectedId); return next; }); }, [selectedId]);
+  const retryViewport = useCallback(() => { if (lastViewportRef.current) void handleViewportChange(lastViewportRef.current); }, [handleViewportChange]);
 
   return <div className="h-svh overflow-hidden bg-background">
     {page === "map" && <div className="relative h-full w-full">
@@ -97,7 +100,7 @@ function AppInner() {
       <div className="pointer-events-none absolute left-4 top-16 z-20 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} /></div></div>
       <FloatingButton className={`fixed right-4 z-20 transition-[bottom] duration-300 ease-out ${sheetOpen ? "bottom-[104px] lg:bottom-8" : "bottom-6 lg:bottom-8"}`} onClick={() => {}} />
       <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
-      <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={status === "idle" ? "success" : status} signalLoading={signalLoadingId === selectedId} signalError={selectedSignalStatus === "error"} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} onRetry={() => { const map = document.querySelector("[role='application']"); if (map) map.dispatchEvent(new Event("signalnow:retry-viewport")); }} onRetrySignal={retrySignal} />
+      <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={status === "idle" ? "success" : status} signalLoading={signalLoadingId === selectedId} signalError={selectedSignalStatus === "error"} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} onRetry={retryViewport} onRetrySignal={retrySignal} />
     </div>}
     {(page === "mypage" || page === "settings") && <div className="flex h-full flex-col"><Header onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} /><main className="flex-1 overflow-y-auto">{page === "mypage" && <ProtectedRoute><MyPage onSettingsClick={handleSettingsClick} onBack={handleBackToMap} /></ProtectedRoute>}{page === "settings" && <ProtectedRoute><SettingsPage onBack={() => setPage("mypage")} /></ProtectedRoute>}</main></div>}
     <LoginModal open={loginOpen} onOpenChange={setLoginOpen} />
