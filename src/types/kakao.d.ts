@@ -49,6 +49,7 @@ declare namespace kakao {
       setLevel(level: number, options?: { animate?: boolean | { duration?: number } }): void;
       getLevel(): number;
       panTo(latlng: LatLng): void;
+      getBounds(): LatLngBounds;
       setBounds(bounds: LatLngBounds, paddingTop?: number, paddingRight?: number, paddingBottom?: number, paddingLeft?: number): void;
       setMaxLevel(maxLevel: number): void;
       addControl(control: object, position: number): void;
