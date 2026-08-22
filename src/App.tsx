@@ -6,7 +6,7 @@ import { Header } from "@/components/Header";
 import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
 import { fetchSelectedIntersectionSignals, type SignalLoadStatus, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
-import type { DataStatus, Intersection, ViewMode } from "@/types/traffic";
+import type { DataStatus, Intersection, TrafficSignal, ViewMode } from "@/types/traffic";
 
 import { AuthProvider } from "@/auth/context/AuthContext";
 import { LoginModal } from "@/auth/components/LoginModal";
@@ -31,6 +31,7 @@ function AppInner() {
   const [signalLoadingId, setSignalLoadingId] = useState<string | null>(null);
   const [signalStatus, setSignalStatus] = useState<Record<string, SignalLoadStatus>>({});
   const viewportRequestRef = useRef(0);
+  const signalDataRef = useRef<Map<string, TrafficSignal[]>>(new Map());
 
   const handleViewportChange = useCallback(async (viewport: Viewport) => {
     const requestId = ++viewportRequestRef.current;
@@ -38,7 +39,16 @@ function AppInner() {
     try {
       const visibleIntersections = await loadIntersectionsForViewport(viewport);
       if (requestId !== viewportRequestRef.current) return;
-      setIntersections(visibleIntersections);
+
+      // Viewport refreshes replace the visible marker list. Rehydrate signal data
+      // already fetched for a crsrdId so a pan/zoom cannot make a known signal
+      // temporarily disappear from the selected panel.
+      const hydrated = visibleIntersections.map((intersection) => {
+        const cachedSignals = signalDataRef.current.get(intersection.crsrdId);
+        return cachedSignals ? { ...intersection, signals: cachedSignals } : intersection;
+      });
+
+      setIntersections(hydrated);
       setStatus("success");
     } catch (error) {
       if (requestId !== viewportRequestRef.current) return;
@@ -64,6 +74,7 @@ function AppInner() {
     fetchSelectedIntersectionSignals(selectedId)
       .then((result) => {
         if (!active) return;
+        signalDataRef.current.set(selectedId, result.signals);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
         setIntersections((prev) => prev.map((intersection) => intersection.crsrdId === selectedId ? { ...intersection, signals: result.signals } : intersection));
       })
