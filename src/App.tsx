@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/BottomSheet";
 import { FloatingButton } from "@/components/FloatingButton";
@@ -30,14 +30,18 @@ function AppInner() {
   const [page, setPage] = useState<Page>("map");
   const [signalLoadingId, setSignalLoadingId] = useState<string | null>(null);
   const [signalStatus, setSignalStatus] = useState<Record<string, SignalLoadStatus>>({});
+  const viewportRequestRef = useRef(0);
 
   const handleViewportChange = useCallback(async (viewport: Viewport) => {
+    const requestId = ++viewportRequestRef.current;
     setStatus("loading");
     try {
       const visibleIntersections = await loadIntersectionsForViewport(viewport);
+      if (requestId !== viewportRequestRef.current) return;
       setIntersections(visibleIntersections);
       setStatus("success");
     } catch (error) {
+      if (requestId !== viewportRequestRef.current) return;
       console.error("[SignalNow] viewport 교차로 로딩 실패", error);
       setStatus("error");
     }
@@ -51,7 +55,7 @@ function AppInner() {
     const selected = intersections.find((intersection) => intersection.crsrdId === selectedId);
     if (!selected) return;
     const currentSignalStatus = signalStatus[selectedId];
-    if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty") return;
+    if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty" || currentSignalStatus === "error") return;
 
     let active = true;
     setSignalLoadingId(selectedId);
@@ -100,13 +104,7 @@ function AppInner() {
       {page === "map" && (
         <div className="relative h-full w-full">
           <div className={`absolute inset-0 transition-[padding] duration-300 ease-out ${sheetOpen ? "lg:pr-[360px]" : "lg:pr-0"}`}>
-            <KakaoMap
-              intersections={intersections}
-              selectedIntersectionId={selectedId}
-              favoriteIds={favorites}
-              onSelectIntersection={handleSelectIntersection}
-              onViewportChange={handleViewportChange}
-            />
+            <KakaoMap intersections={intersections} selectedIntersectionId={selectedId} favoriteIds={favorites} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} />
           </div>
           <Header onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
           <div className="pointer-events-none absolute left-3 top-16 z-20 lg:hidden"><div className="pointer-events-auto w-[calc(100vw-1.5rem)] max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} /></div></div>
@@ -114,7 +112,27 @@ function AppInner() {
           <FloatingButton className={`fixed right-4 z-20 transition-[bottom] duration-300 ease-out ${sheetOpen ? "bottom-[104px] lg:bottom-8" : "bottom-6 lg:bottom-8"}`} onClick={() => {}} />
           <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
           {selectedSignalStatus === "error" && <div className="absolute bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 신호 데이터를 불러오지 못했습니다. 다시 선택해 주세요.</div>}
-          <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} onRetry={() => selectedId ? setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" })) : undefined} />
+          <BottomSheet
+            open={sheetOpen}
+            intersection={selectedIntersection}
+            status={panelStatus}
+            signalLoading={signalLoadingId === selectedId}
+            viewMode={viewMode}
+            favorites={favorites}
+            recent={recentIntersections}
+            onToggleFavorite={handleToggleFavorite}
+            onSelectRecent={handleSelectIntersection}
+            onClearRecent={handleClearRecent}
+            onClose={handleCloseSheet}
+            onRetry={() => {
+              if (!selectedId) return;
+              setSignalStatus((prev) => {
+                const next = { ...prev };
+                delete next[selectedId];
+                return next;
+              });
+            }}
+          />
         </div>
       )}
       {(page === "mypage" || page === "settings") && (
