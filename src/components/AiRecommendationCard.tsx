@@ -28,6 +28,7 @@ export function AiRecommendationCard({
 
   const message = (() => {
     if (!intersection) return "교차로를 선택하면 실시간 주행 추천을 받을 수 있습니다.";
+    if (intersection.signals.length === 0) return "신호 데이터가 아직 없거나 조회되지 않았습니다.";
     if (viewMode === "pedestrian") {
       if (dominant === "green") return "지금 횡단이 가능합니다. 횡단보도 내에서 안전하게 건너세요.";
       if (dominant === "yellow") return "보행 신호가 곧 변경됩니다. 다음 신호 주기까지 대기하세요.";

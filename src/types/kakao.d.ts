@@ -29,6 +29,14 @@ declare namespace kakao {
       getLng(): number;
     }
 
+    class LatLngBounds {
+      constructor(sw?: LatLng, ne?: LatLng);
+      extend(latlng: LatLng): void;
+      contain(latlng: LatLng): boolean;
+      getSouthWest(): LatLng;
+      getNorthEast(): LatLng;
+    }
+
     interface MapOptions {
       center: LatLng;
       level: number;
@@ -41,6 +49,8 @@ declare namespace kakao {
       setLevel(level: number, options?: { animate?: boolean | { duration?: number } }): void;
       getLevel(): number;
       panTo(latlng: LatLng): void;
+      setBounds(bounds: LatLngBounds, paddingTop?: number, paddingRight?: number, paddingBottom?: number, paddingLeft?: number): void;
+      setMaxLevel(maxLevel: number): void;
       addControl(control: object, position: number): void;
     }
 

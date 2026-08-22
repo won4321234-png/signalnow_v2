@@ -5,7 +5,11 @@ import { FloatingButton } from "@/components/FloatingButton";
 import { Header } from "@/components/Header";
 import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
-import { fetchIntersections, findIntersection } from "@/services/intersectionService";
+import {
+  fetchIntersectionSignals,
+  fetchIntersections,
+  findIntersection,
+} from "@/services/intersectionService";
 import type {
   DataStatus,
   Intersection,
@@ -31,6 +35,7 @@ function AppInner() {
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [loginOpen, setLoginOpen] = useState(false);
   const [page, setPage] = useState<Page>("map");
+  const [signalLoadingId, setSignalLoadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -44,6 +49,43 @@ function AppInner() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!selectedId || !sheetOpen) {
+      setSignalLoadingId(null);
+      return;
+    }
+
+    const selected = findIntersection(selectedId, intersections);
+    if (!selected) return;
+    if (selected.signals.length > 0) return;
+
+    let active = true;
+    setSignalLoadingId(selectedId);
+    if (import.meta.env.DEV) {
+      console.log("[SignalNow] 신호 데이터 요청", { crsrdId: selectedId });
+    }
+
+    fetchIntersectionSignals(selectedId)
+      .then((signals) => {
+        if (!active) return;
+        setIntersections((prev) =>
+          prev.map((intersection) =>
+            intersection.crsrdId === selectedId ? { ...intersection, signals } : intersection
+          )
+        );
+        if (import.meta.env.DEV) {
+          console.log("[SignalNow] 신호 데이터 반영", { crsrdId: selectedId, count: signals.length });
+        }
+      })
+      .finally(() => {
+        if (active) setSignalLoadingId((current) => (current === selectedId ? null : current));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedId, sheetOpen, intersections]);
 
   const selectedIntersection = useMemo(
     () => (selectedId ? findIntersection(selectedId, intersections) : null),
@@ -154,6 +196,7 @@ function AppInner() {
             open={sheetOpen}
             intersection={selectedIntersection}
             status={panelStatus}
+            signalLoading={signalLoadingId === selectedId}
             viewMode={viewMode}
             favorites={favorites}
             recent={recentIntersections}

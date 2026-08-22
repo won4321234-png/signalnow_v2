@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 /** Geographic centre of South Korea */
 const DEFAULT_CENTER = { lat: 36.5, lng: 127.8 } as const;
 const DEFAULT_LEVEL  = 13;
+const VIEWPORT_PADDING_RATIO = 0.2;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,22 @@ export interface KakaoMapProps {
 interface OverlayEntry {
   overlay: kakao.maps.CustomOverlay;
   element: HTMLElement;
+}
+
+function getViewportBounds(map: kakao.maps.Map): kakao.maps.LatLngBounds | null {
+  const maybeMap = map as kakao.maps.Map & { getBounds?: () => kakao.maps.LatLngBounds };
+  const bounds = maybeMap.getBounds?.();
+  if (!bounds) return null;
+
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  const latPad = (ne.getLat() - sw.getLat()) * VIEWPORT_PADDING_RATIO;
+  const lngPad = (ne.getLng() - sw.getLng()) * VIEWPORT_PADDING_RATIO;
+
+  return new kakao.maps.LatLngBounds(
+    new kakao.maps.LatLng(sw.getLat() - latPad, sw.getLng() - lngPad),
+    new kakao.maps.LatLng(ne.getLat() + latPad, ne.getLng() + lngPad),
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -68,6 +85,7 @@ export function KakaoMap({
 
   // State version of the map instance — triggers dependent effects/components
   const [mapInstance, setMapInstance] = useState<kakao.maps.Map | null>(null);
+  const [viewportRevision, setViewportRevision] = useState(0);
 
   const { loaded: sdkLoaded, error: sdkError } = useKakaoLoader();
   const {
@@ -85,11 +103,21 @@ export function KakaoMap({
       center: new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
       level:  DEFAULT_LEVEL,
     });
-
+    let viewportTimer: number | null = null;
+    const scheduleViewportRefresh = () => {
+      if (viewportTimer) window.clearTimeout(viewportTimer);
+      viewportTimer = window.setTimeout(() => {
+        setViewportRevision((v) => v + 1);
+      }, 100);
+    };
+    kakao.maps.event.addListener(map, "idle", scheduleViewportRefresh);
     mapRef.current = map;
     setMapInstance(map);
+    scheduleViewportRefresh();
 
     return () => {
+      kakao.maps.event.removeListener(map, "idle", scheduleViewportRefresh);
+      if (viewportTimer) window.clearTimeout(viewportTimer);
       // Clean up on unmount
       for (const { overlay } of overlaysRef.current.values()) overlay.setMap(null);
       overlaysRef.current.clear();
@@ -107,7 +135,18 @@ export function KakaoMap({
     const map = mapRef.current;
     if (!mapInstance || !map) return;
 
-    const incoming = new Set(intersections.map((i) => i.crsrdId));
+    const viewportBounds = getViewportBounds(map);
+    const visible = intersections.filter((intersection) => {
+      if (!viewportBounds) return true;
+      return viewportBounds.contain(new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot));
+    });
+
+    if (import.meta.env.DEV) {
+      console.log("[SignalNow] KakaoMap intersections received", intersections.length);
+      console.log("[SignalNow] KakaoMap visible intersections", visible.length);
+    }
+
+    const incoming = new Set(visible.map((i) => i.crsrdId));
 
     // Remove overlays for intersections that have disappeared
     for (const [id, { overlay }] of overlaysRef.current) {
@@ -118,7 +157,7 @@ export function KakaoMap({
     }
 
     // Add new / update existing overlays
-    for (const intersection of intersections) {
+    for (const intersection of visible) {
       const isSelected = selectedIntersectionId === intersection.crsrdId;
       const isFavorite = favoriteIds.has(intersection.crsrdId);
       const existing   = overlaysRef.current.get(intersection.crsrdId);
@@ -148,7 +187,11 @@ export function KakaoMap({
         overlaysRef.current.set(intersection.crsrdId, { overlay, element });
       }
     }
-  }, [mapInstance, intersections, selectedIntersectionId, favoriteIds]);
+
+    if (import.meta.env.DEV) {
+      console.log("[SignalNow] KakaoMap markers created", visible.filter((i) => !overlaysRef.current.has(i.crsrdId)).length);
+    }
+  }, [mapInstance, intersections, selectedIntersectionId, favoriteIds, viewportRevision]);
 
   // ── 3. Update selection visuals without recreating overlays ─────────────────
   useEffect(() => {

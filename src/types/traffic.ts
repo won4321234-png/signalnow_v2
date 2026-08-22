@@ -16,10 +16,25 @@ export type SignalPhaseState =
   | "stop-And-Remain";
 
 /** Compass direction of an approach at an intersection. */
-export type ApproachDirection = "North" | "East" | "South" | "West";
+export type ApproachDirection =
+  | "North"
+  | "East"
+  | "South"
+  | "West"
+  | "NorthEast"
+  | "SouthEast"
+  | "SouthWest"
+  | "NorthWest";
 
 /** Movement type available for a given approach. */
-export type MovementType = "Straight" | "Left Turn" | "Right Turn" | "Pedestrian";
+export type MovementType =
+  | "Straight"
+  | "Left Turn"
+  | "Right Turn"
+  | "U Turn"
+  | "Pedestrian"
+  | "Bus"
+  | "Bicycle";
 
 /**
  * A single signal for one movement at one approach.
@@ -46,10 +61,26 @@ export interface Intersection {
   crsrdId: string;
   /** KLID intersection name (Korean + romanized label here). */
   crsrdNm: string;
+  /** Standard administrative code for the service area (e.g. Seoul). */
+  stdgCd?: string;
+  /** Region name from the API. */
+  lclgvNm?: string;
   /** Intersection latitude (KLID `mapCtptIntLat`). */
   mapCtptIntLat: number;
   /** Intersection longitude (KLID `mapCtptIntLot`). */
   mapCtptIntLot: number;
+  /** English name when available from the API. */
+  crsrdEngNm?: string;
+  /** Lane width when available from the API. */
+  laneWdth?: string;
+  /** Speed limit type when available from the API. */
+  lmtSpdTypeNm?: string;
+  /** Speed limit when available from the API. */
+  lmtSpd?: string;
+  /** Registration timestamp when available from the API. */
+  regDt?: string;
+  /** Collection timestamp when available from the API. */
+  totDt?: string;
   /** Signals for every approach at this intersection. */
   signals: TrafficSignal[];
   /** ISO timestamp the data was last refreshed. */

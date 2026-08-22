@@ -27,6 +27,7 @@ interface BottomSheetProps {
   open: boolean;
   intersection: Intersection | null;
   status: DataStatus;
+  signalLoading: boolean;
   viewMode: ViewMode;
   favorites: Set<string>;
   recent: Intersection[];
@@ -37,7 +38,16 @@ interface BottomSheetProps {
   onRetry?: () => void;
 }
 
-const DIRECTION_ORDER: ApproachDirection[] = ["North", "East", "South", "West"];
+const DIRECTION_ORDER: ApproachDirection[] = [
+  "North",
+  "East",
+  "South",
+  "West",
+  "NorthEast",
+  "SouthEast",
+  "SouthWest",
+  "NorthWest",
+];
 
 type TabId = "info" | "flow" | "favorites" | "history";
 
@@ -62,6 +72,7 @@ export function BottomSheet({
   open,
   intersection,
   status,
+  signalLoading,
   viewMode,
   favorites,
   recent,
@@ -102,12 +113,33 @@ export function BottomSheet({
   const currentHeightPx =
     liveHeightPx ?? snapHeightPx(snap, viewportHRef.current || window.innerHeight);
 
-  const groupedSignals = intersection?.signals.reduce<
-    Record<ApproachDirection, Intersection["signals"]>
-  >(
-    (acc, sig) => { (acc[sig.direction] ??= []).push(sig); return acc; },
-    { North: [], East: [], South: [], West: [] }
-  );
+  const groupedSignals: Record<ApproachDirection, Intersection["signals"]> = intersection
+    ? intersection.signals.reduce<Record<ApproachDirection, Intersection["signals"]>>(
+        (acc, sig) => {
+          (acc[sig.direction] ??= []).push(sig);
+          return acc;
+        },
+        {
+          North: [],
+          East: [],
+          South: [],
+          West: [],
+          NorthEast: [],
+          SouthEast: [],
+          SouthWest: [],
+          NorthWest: [],
+        }
+      )
+    : {
+        North: [],
+        East: [],
+        South: [],
+        West: [],
+        NorthEast: [],
+        SouthEast: [],
+        SouthWest: [],
+        NorthWest: [],
+      };
 
   const isFav = intersection ? favorites.has(intersection.crsrdId) : false;
 
@@ -125,8 +157,14 @@ export function BottomSheet({
     return (
       <div className="flex flex-col gap-6 px-5 py-5">
         <AiRecommendationCard intersection={intersection} viewMode={viewMode} index={0} />
-        <div className="flex flex-col">
-          {groupedSignals &&
+        <div className="flex flex-col gap-4">
+          {signalLoading ? (
+            <LoadingState />
+          ) : intersection.signals.length === 0 ? (
+            <div className="rounded-2xl border border-border/15 bg-muted/30 px-4 py-5 text-center text-sm font-medium text-muted-foreground">
+              데이터 없음
+            </div>
+          ) : (
             DIRECTION_ORDER.map((dir, idx) => {
               const signals = groupedSignals[dir];
               if (!signals || signals.length === 0) return null;
@@ -136,7 +174,8 @@ export function BottomSheet({
                   <TrafficSignalCard direction={dir} signals={signals} index={idx + 1} viewMode={viewMode} />
                 </div>
               );
-            })}
+            })
+          )}
         </div>
       </div>
     );

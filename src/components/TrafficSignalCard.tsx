@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ArrowUp, Footprints } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, Bike, Bus, CornerDownLeft, Footprints } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +25,9 @@ const MOVEMENT_ICON_MAP: Record<
   ArrowRight,
   ArrowLeft,
   Footprints,
+  Bus,
+  Bike,
+  CornerDownLeft,
 };
 
 const DIRECTION_SHORT: Record<ApproachDirection, string> = {
@@ -32,6 +35,10 @@ const DIRECTION_SHORT: Record<ApproachDirection, string> = {
   East: "동",
   South: "남",
   West: "서",
+  NorthEast: "북동",
+  SouthEast: "남동",
+  SouthWest: "남서",
+  NorthWest: "북서",
 };
 
 interface TrafficSignalCardProps {
