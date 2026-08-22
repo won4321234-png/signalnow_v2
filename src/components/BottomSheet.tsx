@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronDown, Clock, Share2, Star, X, Info, Activity, Bookmark, History } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -11,23 +10,15 @@ import { ErrorView } from "@/components/ErrorView";
 import { LoadingState } from "@/components/LoadingState";
 import { RecentIntersections } from "@/components/RecentIntersections";
 import { TrafficSignalCard } from "@/components/TrafficSignalCard";
-import {
-  snapHeightPx,
-  useBottomSheet,
-  type SheetSnap,
-} from "@/hooks/use-bottom-sheet";
-import type {
-  ApproachDirection,
-  DataStatus,
-  Intersection,
-  ViewMode,
-} from "@/types/traffic";
+import { snapHeightPx, useBottomSheet, type SheetSnap } from "@/hooks/use-bottom-sheet";
+import type { ApproachDirection, DataStatus, Intersection, ViewMode } from "@/types/traffic";
 
 interface BottomSheetProps {
   open: boolean;
   intersection: Intersection | null;
   status: DataStatus;
   signalLoading: boolean;
+  signalError: boolean;
   viewMode: ViewMode;
   favorites: Set<string>;
   recent: Intersection[];
@@ -36,315 +27,74 @@ interface BottomSheetProps {
   onClearRecent: () => void;
   onClose: () => void;
   onRetry?: () => void;
+  onRetrySignal?: () => void;
 }
 
-const DIRECTION_ORDER: ApproachDirection[] = [
-  "North",
-  "East",
-  "South",
-  "West",
-  "NorthEast",
-  "SouthEast",
-  "SouthWest",
-  "NorthWest",
-];
-
+const DIRECTION_ORDER: ApproachDirection[] = ["North", "East", "South", "West", "NorthEast", "SouthEast", "SouthWest", "NorthWest"];
 type TabId = "info" | "flow" | "favorites" | "history";
-
 const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
-  { id: "info", label: "정보", icon: Info },
-  { id: "flow", label: "교통흐름", icon: Activity },
-  { id: "favorites", label: "즐겨찾기", icon: Bookmark },
-  { id: "history", label: "이력", icon: History },
+  { id: "info", label: "정보", icon: Info }, { id: "flow", label: "교통흐름", icon: Activity },
+  { id: "favorites", label: "즐겨찾기", icon: Bookmark }, { id: "history", label: "이력", icon: History },
 ];
 
-function relativeAgo(updatedAt: string): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000));
-  if (seconds < 5) return "방금 전";
-  if (seconds < 60) return `${seconds}초 전`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}분 전`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}시간 전`;
-}
-
-export function BottomSheet({
-  open,
-  intersection,
-  status,
-  signalLoading,
-  viewMode,
-  favorites,
-  recent,
-  onToggleFavorite,
-  onSelectRecent,
-  onClearRecent,
-  onClose,
-  onRetry,
-}: BottomSheetProps) {
-  const { snap, liveHeightPx, isDragging, setSnap, onDragStart, onDragMove, onDragEnd } =
-    useBottomSheet({ open, initialSnap: "partial" });
+export function BottomSheet({ open, intersection, status, signalLoading, signalError, viewMode, favorites, recent, onToggleFavorite, onSelectRecent, onClearRecent, onClose, onRetry, onRetrySignal }: BottomSheetProps) {
+  const { snap, liveHeightPx, isDragging, setSnap, onDragStart, onDragMove, onDragEnd } = useBottomSheet({ open, initialSnap: "partial" });
   const [tab, setTab] = useState<TabId>("info");
-
   const sheetRef = useRef<HTMLDivElement>(null);
   const viewportHRef = useRef<number>(0);
-
   useEffect(() => { viewportHRef.current = window.innerHeight; }, []);
-
-  const handlePointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => onDragStart(e.clientY),
-    [onDragStart]
-  );
-
+  const handlePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => onDragStart(e.clientY), [onDragStart]);
   useEffect(() => {
     if (!isDragging) return;
     const handleMove = (e: PointerEvent) => onDragMove(e.clientY);
     const handleUp = (e: PointerEvent) => onDragEnd(e.clientY);
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
-    };
+    window.addEventListener("pointermove", handleMove); window.addEventListener("pointerup", handleUp); window.addEventListener("pointercancel", handleUp);
+    return () => { window.removeEventListener("pointermove", handleMove); window.removeEventListener("pointerup", handleUp); window.removeEventListener("pointercancel", handleUp); };
   }, [isDragging, onDragMove, onDragEnd]);
+  const currentHeightPx = liveHeightPx ?? snapHeightPx(snap, viewportHRef.current || window.innerHeight);
 
-  const currentHeightPx =
-    liveHeightPx ?? snapHeightPx(snap, viewportHRef.current || window.innerHeight);
-
-  const groupedSignals: Record<ApproachDirection, Intersection["signals"]> = intersection
-    ? intersection.signals.reduce<Record<ApproachDirection, Intersection["signals"]>>(
-        (acc, sig) => {
-          (acc[sig.direction] ??= []).push(sig);
-          return acc;
-        },
-        {
-          North: [],
-          East: [],
-          South: [],
-          West: [],
-          NorthEast: [],
-          SouthEast: [],
-          SouthWest: [],
-          NorthWest: [],
-        }
-      )
-    : {
-        North: [],
-        East: [],
-        South: [],
-        West: [],
-        NorthEast: [],
-        SouthEast: [],
-        SouthWest: [],
-        NorthWest: [],
-      };
-
+  const groupedSignals: Record<ApproachDirection, Intersection["signals"]> = intersection ? intersection.signals.reduce<Record<ApproachDirection, Intersection["signals"]>>((acc, sig) => { (acc[sig.direction] ??= []).push(sig); return acc; }, { North: [], East: [], South: [], West: [], NorthEast: [], SouthEast: [], SouthWest: [], NorthWest: [] }) : { North: [], East: [], South: [], West: [], NorthEast: [], SouthEast: [], SouthWest: [], NorthWest: [] };
   const isFav = intersection ? favorites.has(intersection.crsrdId) : false;
 
   const renderInfoContent = () => {
     if (status === "loading") return <LoadingState />;
     if (status === "error") return <ErrorView onRetry={onRetry} />;
-    if (!intersection) {
-      return (
-        <div className="flex flex-col gap-6 px-5 py-6">
-          <EmptyState />
-          <RecentIntersections recent={recent} onSelect={onSelectRecent} onClear={onClearRecent} />
-        </div>
-      );
-    }
+    if (!intersection) return <div className="flex flex-col gap-6 px-5 py-6"><EmptyState /><RecentIntersections recent={recent} onSelect={onSelectRecent} onClear={onClearRecent} /></div>;
     return (
       <div className="flex flex-col gap-6 px-5 py-5">
         <AiRecommendationCard intersection={intersection} viewMode={viewMode} index={0} />
         <div className="flex flex-col gap-4">
-          {signalLoading ? (
-            <LoadingState />
+          {signalLoading ? <LoadingState /> : signalError ? (
+            <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-5 text-center">
+              <p className="text-sm font-medium text-destructive">신호 데이터를 불러오지 못했습니다.</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={onRetrySignal}>다시 시도</Button>
+            </div>
           ) : intersection.signals.length === 0 ? (
-            <div className="rounded-2xl border border-border/15 bg-muted/30 px-4 py-5 text-center text-sm font-medium text-muted-foreground">
-              데이터 없음
-            </div>
-          ) : (
-            DIRECTION_ORDER.map((dir, idx) => {
-              const signals = groupedSignals[dir];
-              if (!signals || signals.length === 0) return null;
-              return (
-                <div key={dir}>
-                  {idx > 0 && <Separator className="my-6 border-border/15" />}
-                  <TrafficSignalCard direction={dir} signals={signals} index={idx + 1} viewMode={viewMode} />
-                </div>
-              );
-            })
-          )}
+            <div className="rounded-2xl border border-border/15 bg-muted/30 px-4 py-5 text-center text-sm font-medium text-muted-foreground">데이터 없음</div>
+          ) : DIRECTION_ORDER.map((dir, idx) => {
+            const signals = groupedSignals[dir];
+            if (!signals || signals.length === 0) return null;
+            return <div key={dir}>{idx > 0 && <Separator className="my-6 border-border/15" />}<TrafficSignalCard direction={dir} signals={signals} index={idx + 1} viewMode={viewMode} /></div>;
+          })}
         </div>
       </div>
     );
   };
+  const renderFlowContent = () => <div className="flex flex-col items-center justify-center gap-3 py-16 text-center"><Activity className="size-10 text-muted-foreground/40" /><p className="text-sm font-medium text-muted-foreground">교통흐름 분석 기능이 준비 중입니다</p></div>;
+  const renderFavoritesContent = () => <div className="flex flex-col items-center justify-center gap-3 py-16 text-center"><Bookmark className="size-10 text-muted-foreground/40" /><p className="text-sm font-medium text-muted-foreground">즐겨찾기한 교차로가 없습니다</p></div>;
+  const renderHistoryContent = () => recent.length === 0 ? <div className="flex flex-col items-center justify-center gap-3 py-16 text-center"><History className="size-10 text-muted-foreground/40" /><p className="text-sm font-medium text-muted-foreground">최근 본 교차로가 없습니다</p></div> : <div className="px-5 py-5"><RecentIntersections recent={recent} onSelect={onSelectRecent} onClear={onClearRecent} /></div>;
+  const renderContent = () => { switch (tab) { case "info": return renderInfoContent(); case "flow": return renderFlowContent(); case "favorites": return renderFavoritesContent(); case "history": return renderHistoryContent(); } };
 
-  const renderFlowContent = () => (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <Activity className="size-10 text-muted-foreground/40" />
-      <p className="text-sm font-medium text-muted-foreground">교통흐름 분석 기능이 준비 중입니다</p>
-    </div>
-  );
-
-  const renderFavoritesContent = () => (
-    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-      <Bookmark className="size-10 text-muted-foreground/40" />
-      <p className="text-sm font-medium text-muted-foreground">즐겨찾기한 교차로가 없습니다</p>
-    </div>
-  );
-
-  const renderHistoryContent = () => {
-    if (recent.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <History className="size-10 text-muted-foreground/40" />
-          <p className="text-sm font-medium text-muted-foreground">최근 본 교차로가 없습니다</p>
-        </div>
-      );
-    }
-    return (
-      <div className="px-5 py-5">
-        <RecentIntersections recent={recent} onSelect={onSelectRecent} onClear={onClearRecent} />
-      </div>
-    );
-  };
-
-  const renderContent = () => {
-    switch (tab) {
-      case "info": return renderInfoContent();
-      case "flow": return renderFlowContent();
-      case "favorites": return renderFavoritesContent();
-      case "history": return renderHistoryContent();
-    }
-  };
-
-  const renderHeader = (compact = false) => (
-    <div className={cn("sticky top-0 z-10 glass-heavy", compact ? "px-5 pt-2 pb-2" : "px-5 pt-4 pb-3.5")}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h2 className={cn("truncate font-bold tracking-tight text-foreground", compact ? "text-sm" : "text-xl")}>
-            {intersection ? intersection.crsrdNm : "교통 신호"}
-          </h2>
-          {intersection && !compact && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Clock className="size-3" />
-              <span>마지막 업데이트 {relativeAgo(intersection.updatedAt)}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-0.5">
-          {intersection && (
-            <>
-              <Button variant="ghost" size="icon-sm"
-                aria-label={isFav ? "즐겨찾기 삭제" : "즐겨찾기 추가"}
-                onClick={() => onToggleFavorite(intersection.crsrdId)}
-                className={cn("transition-all duration-250 active:scale-90 hover:bg-accent",
-                  isFav ? "text-signal-yellow hover:text-signal-yellow" : "text-muted-foreground")}>
-                <Star className={cn("size-4 transition-all", isFav && "fill-current animate-star-pop")} />
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="교차로 공유" onClick={() => {}}
-                className="text-muted-foreground transition-all duration-250 active:scale-90 hover:bg-accent hover:text-foreground">
-                <Share2 className="size-4" />
-              </Button>
-            </>
-          )}
-          <Button variant="ghost" size="icon-sm" aria-label="패널 닫기" onClick={onClose}
-            className="shrink-0 -mr-1.5 text-muted-foreground transition-all duration-250 active:scale-90 hover:bg-accent hover:text-foreground">
-            <X className="size-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderTabBar = () => (
-    <div className="flex shrink-0 items-center border-t border-border/15 glass-heavy">
-      {TABS.map((t) => {
-        const active = tab === t.id;
-        const Icon = t.icon;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold transition-all duration-200",
-              active ? "text-foreground" : "text-muted-foreground/60 hover:text-muted-foreground"
-            )}
-          >
-            <Icon className={cn("size-4 transition-transform duration-200", active && "scale-110")} />
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const renderSnapDots = () => (
-    <div className="flex items-center justify-center gap-2 pb-2">
-      {(["collapsed", "partial", "full"] as SheetSnap[]).map((s) => (
-        <button key={s} type="button" aria-label={`패널 높이 ${s}`} onClick={() => setSnap(s)}
-          className={cn("h-1.5 rounded-full transition-all duration-250 ease-out",
-            snap === s ? "w-6 bg-foreground/40" : "w-1.5 bg-foreground/15 hover:bg-foreground/30")} />
-      ))}
-    </div>
-  );
-
+  if (!open) return null;
   return (
-    <>
-      {/* Mobile / tablet */}
-      <div className={cn("lg:hidden", open ? "pointer-events-auto" : "pointer-events-none")} aria-hidden={!open}>
-        <div
-          className={cn("fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px] transition-opacity duration-300 lg:hidden",
-            snap === "full" && open ? "opacity-100" : "opacity-0")}
-          onClick={onClose} aria-hidden
-        />
-        <div ref={sheetRef} role="dialog" aria-modal="false" aria-label="교통 신호 정보"
-          style={{ height: open ? `${currentHeightPx}px` : undefined,
-            transition: isDragging ? "none" : "height 380ms cubic-bezier(0.32, 0.72, 0, 1)" }}
-          className={cn("fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-[2rem] border-t border-border/20 bg-card elevation-5",
-            open ? "translate-y-0" : "translate-y-full")}>
-          <div onPointerDown={handlePointerDown}
-            className="flex shrink-0 cursor-grab touch-none flex-col items-center gap-2 px-4 pt-3 pb-1.5 active:cursor-grabbing">
-            <span className="h-1.5 w-10 rounded-full bg-foreground/15 transition-colors active:bg-foreground/30" />
-            {snap !== "collapsed" && renderSnapDots()}
-          </div>
-
-          {snap === "collapsed" ? (
-            <button type="button" aria-label="패널 펼치기" onClick={() => setSnap("partial")}
-              className="flex flex-1 flex-col justify-center px-5 pb-3 text-left">
-              {renderHeader(true)}
-            </button>
-          ) : (
-            <>
-              {renderHeader()}
-              <ScrollArea className="flex-1 overflow-hidden">{renderContent()}</ScrollArea>
-              {renderTabBar()}
-              <button type="button" aria-label="패널 접기" onClick={() => setSnap("collapsed")}
-                className="flex shrink-0 items-center justify-center gap-1.5 border-t border-border/15 py-3 text-xs font-semibold text-muted-foreground transition-colors duration-200 hover:bg-accent">
-                <ChevronDown className="size-4" />
-                접기
-              </button>
-            </>
-          )}
-        </div>
+    <aside ref={sheetRef} className={cn("fixed z-30 flex flex-col overflow-hidden border-border/20 bg-background/95 shadow-2xl backdrop-blur-xl lg:right-0 lg:top-0 lg:h-full lg:w-[360px] lg:border-l", "bottom-0 left-0 w-full rounded-t-3xl border-t lg:rounded-none lg:border-t-0")} style={{ height: currentHeightPx }}>
+      <div className="flex shrink-0 touch-none cursor-grab items-center justify-between px-4 py-3 lg:hidden" onPointerDown={handlePointerDown}>
+        <div className="mx-auto h-1.5 w-12 rounded-full bg-muted-foreground/30" />
+        <button className="absolute right-3 rounded-full p-2 text-muted-foreground hover:bg-muted" onClick={onClose} aria-label="닫기"><X className="size-4" /></button>
       </div>
-
-      {/* Desktop */}
-      <aside className={cn(
-        "hidden lg:flex fixed right-0 top-14 z-20 h-[calc(100vh-3.5rem)] w-[360px] flex-col border-l border-border/15 bg-card/95 elevation-4",
-        "transition-transform duration-350 ease-out",
-        open ? "translate-x-0 animate-panel-slide-in" : "translate-x-full")}
-        aria-hidden={!open} aria-label="교통 신호 정보">
-        {renderHeader()}
-        <ScrollArea className="flex-1 overflow-hidden">{renderContent()}</ScrollArea>
-        {renderTabBar()}
-      </aside>
-    </>
+      <div className="hidden shrink-0 items-center justify-between border-b px-4 py-3 lg:flex"><div><p className="text-sm font-semibold">{intersection?.crsrdNm ?? "교차로 정보"}</p><p className="text-xs text-muted-foreground">실시간 신호 정보</p></div><button className="rounded-full p-2 text-muted-foreground hover:bg-muted" onClick={onClose} aria-label="닫기"><X className="size-4" /></button></div>
+      <div className="flex shrink-0 border-b border-border/10 px-2">{TABS.map(({ id, label, icon: Icon }) => <button key={id} className={cn("flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-3 text-xs font-medium", tab === id ? "border-primary text-primary" : "border-transparent text-muted-foreground")} onClick={() => setTab(id)}><Icon className="size-3.5" />{label}</button>)}</div>
+      <ScrollArea className="min-h-0 flex-1">{renderContent()}</ScrollArea>
+    </aside>
   );
 }
-
-export default BottomSheet;
