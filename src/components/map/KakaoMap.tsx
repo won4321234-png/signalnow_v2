@@ -1,45 +1,26 @@
-/**
- * Real Kakao Maps component that replaces the static MapPlaceholder.
- *
- * Responsibilities:
- *  - Loads the Kakao SDK via useKakaoLoader (singleton — never loads twice)
- *  - Creates the kakao.maps.Map instance once the SDK is ready
- *  - Syncs CustomOverlay markers with the `intersections` prop
- *  - Updates selection / favourite state without recreating overlays
- *  - Pans to the selected intersection and to the user's current location
- *  - Renders a loading skeleton and an error state
- *  - Adds native zoom, map-type, and scale controls via MapControls
- *  - Hosts the CurrentLocationButton as a floating React overlay
- */
-
 import { useEffect, useRef, useCallback, useState } from "react";
 import { MapPin, WifiOff } from "lucide-react";
 
 import type { Intersection } from "@/types/traffic";
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
-import {
-  createMarkerElement,
-  updateMarkerState,
-} from "@/components/map/SignalMarker";
+import { createMarkerElement, updateMarkerState } from "@/components/map/SignalMarker";
 import { CurrentLocationButton } from "@/components/map/CurrentLocationButton";
 import { MapControls } from "@/components/map/MapControls";
 import { cn } from "@/lib/utils";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+type Viewport = { south: number; west: number; north: number; east: number };
 
-/** Geographic centre of South Korea */
-const DEFAULT_CENTER = { lat: 36.5, lng: 127.8 } as const;
-const DEFAULT_LEVEL  = 13;
+const DEFAULT_CENTER = { lat: 37.5665, lng: 126.978 } as const;
+const DEFAULT_LEVEL = 9;
 const VIEWPORT_PADDING_RATIO = 0.2;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface KakaoMapProps {
   intersections: Intersection[];
   selectedIntersectionId: string | null;
   favoriteIds: Set<string>;
   onSelectIntersection: (intersectionId: string) => void;
+  onViewportChange?: (viewport: Viewport) => void;
   className?: string;
 }
 
@@ -48,77 +29,64 @@ interface OverlayEntry {
   element: HTMLElement;
 }
 
-function getViewportBounds(map: kakao.maps.Map): kakao.maps.LatLngBounds | null {
-  const maybeMap = map as kakao.maps.Map & { getBounds?: () => kakao.maps.LatLngBounds };
-  const bounds = maybeMap.getBounds?.();
+function getViewport(map: kakao.maps.Map): Viewport | null {
+  const bounds = map.getBounds?.();
   if (!bounds) return null;
-
   const sw = bounds.getSouthWest();
   const ne = bounds.getNorthEast();
   const latPad = (ne.getLat() - sw.getLat()) * VIEWPORT_PADDING_RATIO;
   const lngPad = (ne.getLng() - sw.getLng()) * VIEWPORT_PADDING_RATIO;
-
-  return new kakao.maps.LatLngBounds(
-    new kakao.maps.LatLng(sw.getLat() - latPad, sw.getLng() - lngPad),
-    new kakao.maps.LatLng(ne.getLat() + latPad, ne.getLng() + lngPad),
-  );
+  return {
+    south: sw.getLat() - latPad,
+    west: sw.getLng() - lngPad,
+    north: ne.getLat() + latPad,
+    east: ne.getLng() + lngPad,
+  };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export function KakaoMap({
-  intersections,
-  selectedIntersectionId,
-  favoriteIds,
-  onSelectIntersection,
-  className,
-}: KakaoMapProps) {
-  const containerRef   = useRef<HTMLDivElement>(null);
-  const mapRef         = useRef<kakao.maps.Map | null>(null);
-  const overlaysRef    = useRef<Map<string, OverlayEntry>>(new Map());
-  const userMarkerRef  = useRef<kakao.maps.CustomOverlay | null>(null);
+export function KakaoMap({ intersections, selectedIntersectionId, favoriteIds, onSelectIntersection, onViewportChange, className }: KakaoMapProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<kakao.maps.Map | null>(null);
+  const overlaysRef = useRef<Map<string, OverlayEntry>>(new Map());
+  const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const prevSelectedRef = useRef<string | null>(null);
-
-  // Stable ref for the callback so marker click-handlers never go stale
   const onSelectRef = useRef(onSelectIntersection);
+  const onViewportRef = useRef(onViewportChange);
   onSelectRef.current = onSelectIntersection;
+  onViewportRef.current = onViewportChange;
 
-  // State version of the map instance — triggers dependent effects/components
   const [mapInstance, setMapInstance] = useState<kakao.maps.Map | null>(null);
   const [viewportRevision, setViewportRevision] = useState(0);
-
   const { loaded: sdkLoaded, error: sdkError } = useKakaoLoader();
-  const {
-    getLocation,
-    loading: locationLoading,
-    error:   locationError,
-    location,
-  } = useCurrentLocation();
+  const { getLocation, loading: locationLoading, error: locationError, location } = useCurrentLocation();
 
-  // ── 1. Initialise map once SDK is ready ──────────────────────────────────────
   useEffect(() => {
     if (!sdkLoaded || !containerRef.current || mapRef.current) return;
 
     const map = new kakao.maps.Map(containerRef.current, {
       center: new kakao.maps.LatLng(DEFAULT_CENTER.lat, DEFAULT_CENTER.lng),
-      level:  DEFAULT_LEVEL,
+      level: DEFAULT_LEVEL,
     });
     let viewportTimer: number | null = null;
-    const scheduleViewportRefresh = () => {
+
+    const emitViewport = () => {
       if (viewportTimer) window.clearTimeout(viewportTimer);
       viewportTimer = window.setTimeout(() => {
-        setViewportRevision((v) => v + 1);
-      }, 100);
+        const viewport = getViewport(map);
+        if (!viewport) return;
+        setViewportRevision((revision) => revision + 1);
+        onViewportRef.current?.(viewport);
+      }, 150);
     };
-    kakao.maps.event.addListener(map, "idle", scheduleViewportRefresh);
+
+    kakao.maps.event.addListener(map, "idle", emitViewport);
     mapRef.current = map;
     setMapInstance(map);
-    scheduleViewportRefresh();
+    emitViewport();
 
     return () => {
-      kakao.maps.event.removeListener(map, "idle", scheduleViewportRefresh);
+      kakao.maps.event.removeListener(map, "idle", emitViewport);
       if (viewportTimer) window.clearTimeout(viewportTimer);
-      // Clean up on unmount
       for (const { overlay } of overlaysRef.current.values()) overlay.setMap(null);
       overlaysRef.current.clear();
       if (userMarkerRef.current) {
@@ -130,25 +98,16 @@ export function KakaoMap({
     };
   }, [sdkLoaded]);
 
-  // ── 2. Sync intersection markers with the map ────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!mapInstance || !map) return;
-
-    const viewportBounds = getViewportBounds(map);
+    const bounds = map.getBounds?.();
     const visible = intersections.filter((intersection) => {
-      if (!viewportBounds) return true;
-      return viewportBounds.contain(new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot));
+      if (!bounds) return true;
+      return bounds.contain(new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot));
     });
+    const incoming = new Set(visible.map((intersection) => intersection.crsrdId));
 
-    if (import.meta.env.DEV) {
-      console.log("[SignalNow] KakaoMap intersections received", intersections.length);
-      console.log("[SignalNow] KakaoMap visible intersections", visible.length);
-    }
-
-    const incoming = new Set(visible.map((i) => i.crsrdId));
-
-    // Remove overlays for intersections that have disappeared
     for (const [id, { overlay }] of overlaysRef.current) {
       if (!incoming.has(id)) {
         overlay.setMap(null);
@@ -156,166 +115,97 @@ export function KakaoMap({
       }
     }
 
-    // Add new / update existing overlays
     for (const intersection of visible) {
       const isSelected = selectedIntersectionId === intersection.crsrdId;
       const isFavorite = favoriteIds.has(intersection.crsrdId);
-      const existing   = overlaysRef.current.get(intersection.crsrdId);
-
+      const existing = overlaysRef.current.get(intersection.crsrdId);
       if (existing) {
         updateMarkerState(existing.element, isSelected, isFavorite, intersection);
         existing.overlay.setZIndex(isSelected ? 20 : 10);
-      } else {
-        const element = createMarkerElement(intersection, isSelected, isFavorite);
-
-        // Use a ref-backed handler so the closure never goes stale
-        element.addEventListener("click", () =>
-          onSelectRef.current(intersection.crsrdId),
-        );
-
-        const overlay = new kakao.maps.CustomOverlay({
-          position: new kakao.maps.LatLng(
-            intersection.mapCtptIntLat,
-            intersection.mapCtptIntLot,
-          ),
-          content: element,
-          xAnchor: 0.5,
-          yAnchor: 1.0,
-          zIndex:  isSelected ? 20 : 10,
-        });
-        overlay.setMap(map);
-        overlaysRef.current.set(intersection.crsrdId, { overlay, element });
+        continue;
       }
-    }
 
-    if (import.meta.env.DEV) {
-      console.log("[SignalNow] KakaoMap markers created", visible.filter((i) => !overlaysRef.current.has(i.crsrdId)).length);
+      const element = createMarkerElement(intersection, isSelected, isFavorite);
+      element.addEventListener("click", () => onSelectRef.current(intersection.crsrdId));
+      const overlay = new kakao.maps.CustomOverlay({
+        position: new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot),
+        content: element,
+        xAnchor: 0.5,
+        yAnchor: 1,
+        zIndex: isSelected ? 20 : 10,
+      });
+      overlay.setMap(map);
+      overlaysRef.current.set(intersection.crsrdId, { overlay, element });
     }
   }, [mapInstance, intersections, selectedIntersectionId, favoriteIds, viewportRevision]);
 
-  // ── 3. Update selection visuals without recreating overlays ─────────────────
   useEffect(() => {
-    const prev = prevSelectedRef.current;
-    const curr = selectedIntersectionId;
-    if (prev === curr) return;
+    const previous = prevSelectedRef.current;
+    const current = selectedIntersectionId;
+    if (previous === current) return;
 
-    // Deselect the previously selected marker
-    if (prev) {
-      const entry        = overlaysRef.current.get(prev);
-      const intersection = intersections.find((i) => i.crsrdId === prev);
+    if (previous) {
+      const entry = overlaysRef.current.get(previous);
+      const intersection = intersections.find((item) => item.crsrdId === previous);
       if (entry && intersection) {
-        updateMarkerState(entry.element, false, favoriteIds.has(prev), intersection);
+        updateMarkerState(entry.element, false, favoriteIds.has(previous), intersection);
         entry.overlay.setZIndex(10);
       }
     }
 
-    // Select the newly chosen marker and pan to it
-    if (curr) {
-      const entry        = overlaysRef.current.get(curr);
-      const intersection = intersections.find((i) => i.crsrdId === curr);
+    if (current) {
+      const entry = overlaysRef.current.get(current);
+      const intersection = intersections.find((item) => item.crsrdId === current);
       if (entry && intersection) {
-        updateMarkerState(entry.element, true, favoriteIds.has(curr), intersection);
+        updateMarkerState(entry.element, true, favoriteIds.has(current), intersection);
         entry.overlay.setZIndex(20);
-        mapRef.current?.panTo(
-          new kakao.maps.LatLng(
-            intersection.mapCtptIntLat,
-            intersection.mapCtptIntLot,
-          ),
-        );
+        mapRef.current?.panTo(new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot));
       }
     }
-
-    prevSelectedRef.current = curr;
+    prevSelectedRef.current = current;
   }, [selectedIntersectionId, intersections, favoriteIds]);
 
-  // ── 4. Move map to user's current location ───────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!location || !map) return;
-
     const latlng = new kakao.maps.LatLng(location.lat, location.lng);
-
     if (userMarkerRef.current) {
       userMarkerRef.current.setPosition(latlng);
     } else {
-      // Simple blue-dot marker for the user's position
-      const el = document.createElement("div");
-      el.style.cssText =
-        "width:16px;height:16px;background:var(--primary);border-radius:50%;" +
-        "border:3px solid white;box-shadow:var(--shadow-md);flex-shrink:0;";
-
-      const marker = new kakao.maps.CustomOverlay({
-        position: latlng,
-        content:  el,
-        xAnchor:  0.5,
-        yAnchor:  0.5,
-        zIndex:   30,
-      });
+      const element = document.createElement("div");
+      element.style.cssText = "width:16px;height:16px;background:var(--primary);border-radius:50%;border:3px solid white;box-shadow:var(--shadow-md);flex-shrink:0;";
+      const marker = new kakao.maps.CustomOverlay({ position: latlng, content: element, xAnchor: 0.5, yAnchor: 0.5, zIndex: 30 });
       marker.setMap(map);
       userMarkerRef.current = marker;
     }
-
     map.panTo(latlng);
     map.setLevel(5);
   }, [location]);
 
   const handleLocate = useCallback(() => getLocation(), [getLocation]);
 
-  // ── SDK error state ──────────────────────────────────────────────────────────
   if (sdkError) {
     return (
-      <div
-        className={cn(
-          "flex h-full w-full items-center justify-center bg-muted",
-          className,
-        )}
-      >
-        <div className="flex flex-col items-center gap-3 text-center px-6">
+      <div className={cn("flex h-full w-full items-center justify-center bg-muted", className)}>
+        <div className="flex flex-col items-center gap-3 px-6 text-center">
           <WifiOff className="size-10 text-muted-foreground" />
-          <p className="text-sm font-semibold text-foreground">
-            지도를 불러올 수 없습니다
-          </p>
-          <p className="text-xs text-muted-foreground">
-            카카오맵 API 키를 확인하거나 네트워크 상태를 점검하세요
-          </p>
+          <p className="text-sm font-semibold text-foreground">지도를 불러올 수 없습니다</p>
+          <p className="text-xs text-muted-foreground">카카오맵 API 키를 확인하거나 네트워크 상태를 점검하세요</p>
         </div>
       </div>
     );
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      {/* Kakao Maps container — must be full-size for the SDK to render */}
-      <div
-        ref={containerRef}
-        className="h-full w-full"
-        role="application"
-        aria-label="교차로 지도"
-      />
-
-      {/* Loading skeleton shown until the SDK fires its ready callback */}
+      <div ref={containerRef} className="h-full w-full" role="application" aria-label="교차로 지도" />
       {!sdkLoaded && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-map-surface animate-fade-in">
-          <div className="flex flex-col items-center gap-3">
-            <MapPin className="size-10 animate-bounce text-primary" />
-            <p className="text-sm font-medium text-muted-foreground">
-              카카오맵 불러오는 중…
-            </p>
-          </div>
+          <div className="flex flex-col items-center gap-3"><MapPin className="size-10 animate-bounce text-primary" /><p className="text-sm font-medium text-muted-foreground">카카오맵 불러오는 중…</p></div>
         </div>
       )}
-
-      {/* Native Kakao controls (zoom / map-type / scale) — renders null */}
       <MapControls map={mapInstance} />
-
-      {/* Current location floating button */}
-      <CurrentLocationButton
-        onLocate={handleLocate}
-        loading={locationLoading}
-        error={locationError}
-        className="absolute bottom-24 right-4 z-20"
-      />
+      <CurrentLocationButton onLocate={handleLocate} loading={locationLoading} error={locationError} className="absolute bottom-24 right-4 z-20" />
     </div>
   );
 }
