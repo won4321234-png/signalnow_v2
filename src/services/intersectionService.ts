@@ -50,7 +50,7 @@ interface LoaderOptions {
 
 const intersectionPageCache = new Map<number, KlidIntersectionRecord[]>();
 const intersectionCache = new Map<string, Intersection>();
-const signalCache = new Map<string, TrafficSignal[]>();
+const signalCache = new Map<string, SignalSeed[]>();
 const signalPromiseCache = new Map<string, Promise<TrafficSignal[]>>();
 
 let intersectionLoadPromise: Promise<Intersection[]> | null = null;
