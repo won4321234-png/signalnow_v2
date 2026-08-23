@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { MapPin, WifiOff } from "lucide-react";
 
-import type { Intersection } from "@/types/traffic";
+import type { Intersection, ViewMode } from "@/types/traffic";
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { createMarkerElement, updateMarkerState } from "@/components/map/SignalMarker";
@@ -21,6 +21,7 @@ export interface KakaoMapProps {
   selectedIntersection: Intersection | null;
   selectedIntersectionId: string | null;
   favoriteIds: Set<string>;
+  viewMode: ViewMode;
   onSelectIntersection: (intersectionId: string) => void;
   onViewportChange?: (viewport: Viewport) => void;
   className?: string;
@@ -39,7 +40,7 @@ function getViewport(map: kakao.maps.Map): Viewport | null {
   return { south: sw.getLat() - latPad, west: sw.getLng() - lngPad, north: ne.getLat() + latPad, east: ne.getLng() + lngPad };
 }
 
-export function KakaoMap({ intersections, selectedIntersection, selectedIntersectionId, favoriteIds, onSelectIntersection, onViewportChange, className }: KakaoMapProps) {
+export function KakaoMap({ intersections, selectedIntersection, selectedIntersectionId, favoriteIds, viewMode, onSelectIntersection, onViewportChange, className }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<kakao.maps.Map | null>(null);
   const overlaysRef = useRef<Map<string, OverlayEntry>>(new Map());
@@ -130,16 +131,16 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
     const position = new kakao.maps.LatLng(selectedIntersection.mapCtptIntLat, selectedIntersection.mapCtptIntLot);
     const existing = signalOverlayRef.current;
     if (existing) {
-      updateIntersectionSignalOverlayElement(existing.element, selectedIntersection);
+      updateIntersectionSignalOverlayElement(existing.element, selectedIntersection, viewMode);
       existing.overlay.setPosition(position);
       existing.overlay.setZIndex(15);
       return;
     }
-    const element = createIntersectionSignalOverlayElement(selectedIntersection);
+    const element = createIntersectionSignalOverlayElement(selectedIntersection, viewMode);
     const overlay = new kakao.maps.CustomOverlay({ position, content: element, xAnchor: 0.5, yAnchor: 0.5, zIndex: 15 });
     overlay.setMap(map);
     signalOverlayRef.current = { overlay, element };
-  }, [mapInstance, selectedIntersection, selectedIntersectionId]);
+  }, [mapInstance, selectedIntersection, selectedIntersectionId, viewMode]);
 
   useEffect(() => {
     const previous = prevSelectedRef.current;
