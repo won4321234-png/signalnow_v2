@@ -8,7 +8,7 @@ const VIEWPORT_PADDING = 0.15;
 const MAX_NEW_PAGES_PER_VIEWPORT = 2;
 type Viewport = { south: number; west: number; north: number; east: number };
 export type SignalLoadStatus = "loading" | "success" | "empty" | "error";
-export interface SignalDiagnostic { direction: ApproachDirection; movement: MovementType; rawRemaining: unknown; parsedRemaining: number | undefined; rawState: unknown; }
+export interface SignalDiagnostic { direction: ApproachDirection; movement: MovementType; field: string; rawRemaining: unknown; parsedRemaining: number | undefined; rawState: unknown; }
 export interface SignalLoadResult { signals: TrafficSignal[]; status: Exclude<SignalLoadStatus, "loading">; debug: { apiStatus: string; itemCount: number; matched: boolean; matchedId: string; via: "direct" | "proxy" | "-"; responseReceived: boolean; sampleIds: string[]; matchedKeys: string[]; signalDiagnostics: SignalDiagnostic[]; failureReason: string }; }
 const pageCache = new Map<number, KlidIntersectionRecord[]>();
 const intersectionCache = new Map<string, Intersection>();
@@ -42,7 +42,7 @@ function extractSignals(record: KlidSignalRecord): { signals: TrafficSignal[]; d
     const state = normalizeState(rawState);
     const parsedRemaining = toOptionalNumber(remaining);
     if (remaining === undefined && state === undefined) continue;
-    diagnostics.push({ direction, movement, rawRemaining: remaining, parsedRemaining, rawState });
+    diagnostics.push({ direction, movement, field: remainingKey, rawRemaining: remaining, parsedRemaining, rawState });
     if (state === undefined) continue;
     signals.push({ direction, movement, state, remainingSeconds: parsedRemaining, cycleSeconds: 60 });
   }
