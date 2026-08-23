@@ -9,7 +9,8 @@ export interface KlidSignalRecord {
 interface KlidResponseEnvelope { response?: { header?: ApiHeader; body?: ApiBody }; header?: ApiHeader; body?: ApiBody; }
 interface ApiHeader { resultCode?: string; resultMsg?: string; }
 interface ApiBody { totalCount?: number | string; pageNo?: number | string; numOfRows?: number | string; items?: { item?: Record<string, unknown> | Record<string, unknown>[] }; }
-export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; }
+export interface TrafficApiDebugMeta { apiStatus: string; via: "direct" | "proxy"; responseReceived: boolean; itemCount: number; }
+export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; debug: TrafficApiDebugMeta; }
 export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; basePath?: string; }
 
 const TRAFFIC_API_TIMEOUT_MS = 8000;
@@ -19,6 +20,10 @@ function logDev(message: string, ...args: unknown[]): void { if (import.meta.env
 function toArray<T>(value: T | T[] | undefined): T[] { if (!value) return []; return Array.isArray(value) ? value : [value]; }
 async function parseJsonResponse(response: Response): Promise<KlidResponseEnvelope> { const text = await response.text(); if (!text.trim()) throw new Error("Empty response from traffic API."); return JSON.parse(text) as KlidResponseEnvelope; }
 function normalizeServiceKey(serviceKey: string): string { const trimmed = serviceKey.trim(); try { return decodeURIComponent(trimmed); } catch { return trimmed; } }
+
+export class TrafficApiRequestError extends Error {
+  constructor(message: string, public readonly debug: TrafficApiDebugMeta) { super(message); this.name = "TrafficApiRequestError"; }
+}
 
 async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
   const normalizedServiceKey = normalizeServiceKey(serviceKey);
@@ -53,17 +58,26 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   } catch {
     via = "proxy";
     debugLog("proxy fallback start", { endpoint: path });
-    response = await tryFetch(proxyUrl.toString(), "proxy");
+    try {
+      response = await tryFetch(proxyUrl.toString(), "proxy");
+    } catch (error) {
+      throw new TrafficApiRequestError("Traffic API direct and proxy requests failed.", { apiStatus: "network-error", via: "proxy", responseReceived: false, itemCount: 0 });
+    }
   }
-  if (!response.ok) { debugLog("FAILURE: API request", { endpoint: path, status: response.status, ok: response.ok, via }); throw new Error(`Traffic API request failed with status ${response.status}.`); }
+  if (!response.ok) {
+    const debug: TrafficApiDebugMeta = { apiStatus: String(response.status), via, responseReceived: true, itemCount: 0 };
+    debugLog("FAILURE: API request", { endpoint: path, status: response.status, ok: response.ok, via });
+    throw new TrafficApiRequestError(`Traffic API request failed with status ${response.status}.`, debug);
+  }
 
   let payload: KlidResponseEnvelope;
-  try { debugLog("parse-start", { endpoint: path, status: response.status, via }); payload = await parseJsonResponse(response); debugLog("parse-complete", { endpoint: path, status: response.status, via }); } catch (error) { debugLog("FAILURE: response parsing", { endpoint: path, status: response.status, ok: response.ok, via, error: error instanceof Error ? error.message : "unknown" }); throw error; }
+  try { debugLog("parse-start", { endpoint: path, status: response.status, via }); payload = await parseJsonResponse(response); debugLog("parse-complete", { endpoint: path, status: response.status, via }); } catch (error) { debugLog("FAILURE: response parsing", { endpoint: path, status: response.status, ok: response.ok, via, error: error instanceof Error ? error.message : "unknown" }); throw new TrafficApiRequestError("Traffic API response parsing failed.", { apiStatus: "parse-error", via, responseReceived: true, itemCount: 0 }); }
   const envelope = payload.response ?? payload; const header = envelope.header; const body = envelope.body; const itemCount = toArray(body?.items?.item).length;
+  const debug: TrafficApiDebugMeta = { apiStatus: String(response.status), via, responseReceived: true, itemCount };
   debugLog("tl_drct_info response", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount });
   logDev("서울 교차로 API 응답", path, { resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: body?.totalCount ?? 0, itemCount });
-  if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") { const message = header.resultMsg ?? "Traffic API returned an error."; if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") return { totalCount: 0, items: [] }; throw new Error(message); }
-  return { totalCount: Number(body?.totalCount ?? 0), items: toArray(body?.items?.item) as T[] };
+  if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") { const message = header.resultMsg ?? "Traffic API returned an error."; if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") return { totalCount: 0, items: [], debug }; throw new TrafficApiRequestError(message, { ...debug, apiStatus: `api-error:${header.resultCode}` }); }
+  return { totalCount: Number(body?.totalCount ?? 0), items: toArray(body?.items?.item) as T[], debug };
 }
 
 export async function fetchTrafficMapInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult<KlidIntersectionRecord>> { return fetchTrafficApiPage<KlidIntersectionRecord>({ ...options, path: "/crsrd_map_info" }); }
