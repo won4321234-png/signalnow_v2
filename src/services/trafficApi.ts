@@ -22,7 +22,13 @@ async function parseJsonResponse(response: Response): Promise<KlidResponseEnvelo
 function normalizeServiceKey(serviceKey: string): string { const trimmed = serviceKey.trim(); try { return decodeURIComponent(trimmed); } catch { return trimmed; } }
 
 export class TrafficApiRequestError extends Error {
-  constructor(message: string, public readonly debug: TrafficApiDebugMeta) { super(message); this.name = "TrafficApiRequestError"; }
+  public readonly debug: TrafficApiDebugMeta;
+
+  constructor(message: string, debug: TrafficApiDebugMeta) {
+    super(message);
+    this.name = "TrafficApiRequestError";
+    this.debug = debug;
+  }
 }
 
 async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
