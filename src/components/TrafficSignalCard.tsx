@@ -62,7 +62,6 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
 
   return (
     <section className="animate-card-enter" style={{ animationDelay: `${index * 60}ms` }}>
-      {/* Section header */}
       <div className="flex items-center justify-between px-1 pb-3.5">
         <div className="flex items-center gap-2">
           <span className="flex size-6 items-center justify-center rounded-md bg-muted/60 text-[11px] font-bold text-muted-foreground">
@@ -75,7 +74,6 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
         <span className="text-[11px] font-medium text-muted-foreground">{signals.length}개 차선</span>
       </div>
 
-      {/* Signal rows */}
       <div className="flex flex-col">
         {orderedSignals.map((sig, idx) => {
           const color: SignalColor = phaseColor(sig.state);
@@ -87,40 +85,39 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
               {idx > 0 && <Separator className="my-3 border-border/15" />}
 
               <div className="flex items-center gap-3 px-1">
-                {/* Icon in circle — neutral */}
                 <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", SIGNAL_SOFT_BG_CLASS[color])}>
                   <Icon className={cn("size-4.5", SIGNAL_TEXT_CLASS[color])} />
                 </span>
 
-                {/* Label — neutral */}
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                   {MOVEMENT_LABELS_KO[sig.movement]}
                 </span>
 
-                {/* Status badge */}
                 <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold text-white", SIGNAL_BG_CLASS[color])}>
                   {PHASE_LABELS[sig.state]}
                 </span>
 
-                {/* Countdown */}
                 <div className="flex shrink-0 items-baseline gap-0.5">
                   <span className={cn("text-xl font-extrabold tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>
-                    {sig.remainingSeconds}
+                    {sig.remainingSeconds ?? "—"}
                   </span>
-                  <span className="text-[10px] font-semibold text-muted-foreground">s</span>
+                  {sig.remainingSeconds !== undefined && (
+                    <span className="text-[10px] font-semibold text-muted-foreground">s</span>
+                  )}
                 </div>
               </div>
 
-              {/* Progress bar with end dot */}
-              <div className="mt-2.5 flex items-center gap-1.5 pl-10">
-                <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/50">
-                  <div
-                    className={cn("h-full rounded-full transition-all duration-500 ease-linear", SIGNAL_BG_CLASS[color])}
-                    style={{ width: `${progress * 100}%` }}
-                  />
+              {progress !== undefined && (
+                <div className="mt-2.5 flex items-center gap-1.5 pl-10">
+                  <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/50">
+                    <div
+                      className={cn("h-full rounded-full transition-all duration-500 ease-linear", SIGNAL_BG_CLASS[color])}
+                      style={{ width: `${progress * 100}%` }}
+                    />
+                  </div>
+                  <span className={cn("size-2 shrink-0 rounded-full", SIGNAL_BG_CLASS[color])} aria-hidden />
                 </div>
-                <span className={cn("size-2 shrink-0 rounded-full", SIGNAL_BG_CLASS[color])} aria-hidden />
-              </div>
+              )}
             </div>
           );
         })}
