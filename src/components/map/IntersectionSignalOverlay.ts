@@ -41,7 +41,7 @@ const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = {
 };
 
 function formatSeconds(value: number | undefined): string {
-  return value === undefined ? "—" : `${Math.max(0, value)}`;
+  return value === undefined ? "—" : `${Math.floor(Math.max(0, value))}`;
 }
 
 function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): TrafficSignal[] {
