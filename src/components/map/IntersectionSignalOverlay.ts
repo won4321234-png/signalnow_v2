@@ -1,55 +1,251 @@
 import type { ApproachDirection, Intersection, SignalPhaseState, TrafficSignal } from "@/types/traffic";
 
 const DIRECTION_ORDER: ApproachDirection[] = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"];
-const DIRECTION_ARROW: Record<ApproachDirection, string> = { North: "↑", NorthEast: "↗", East: "→", SouthEast: "↘", South: "↓", SouthWest: "↙", West: "←", NorthWest: "↖" };
-const DIRECTION_POSITION: Record<ApproachDirection, string> = {
-  North: "left:50%;top:0;transform:translate(-50%,-125%);",
-  NorthEast: "right:0;top:18%;transform:translate(70%,-50%);",
-  East: "right:0;top:50%;transform:translate(125%,-50%);",
-  SouthEast: "right:0;bottom:18%;transform:translate(70%,50%);",
-  South: "left:50%;bottom:0;transform:translate(-50%,125%);",
-  SouthWest: "left:0;bottom:18%;transform:translate(-70%,50%);",
-  West: "left:0;top:50%;transform:translate(-125%,-50%);",
-  NorthWest: "left:0;top:18%;transform:translate(-70%,-50%);",
+
+const DIRECTION_ARROW: Record<ApproachDirection, string> = {
+  North: "↑",
+  NorthEast: "↗",
+  East: "→",
+  SouthEast: "↘",
+  South: "↓",
+  SouthWest: "↙",
+  West: "←",
+  NorthWest: "↖",
 };
+
+const DIRECTION_GRID_AREA: Record<ApproachDirection, string> = {
+  North: "north",
+  NorthEast: "northEast",
+  East: "east",
+  SouthEast: "southEast",
+  South: "south",
+  SouthWest: "southWest",
+  West: "west",
+  NorthWest: "northWest",
+};
+
 const STATE_COLOR: Record<SignalPhaseState, string> = {
   "protected-Movement-Allowed": "var(--color-signal-green)",
   "protected-clearance": "var(--color-signal-yellow)",
   "stop-And-Remain": "var(--color-signal-red)",
 };
+
 const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = {
-  Straight: "직진", "Left Turn": "좌회전", "Right Turn": "우회전", "U Turn": "유턴", Pedestrian: "보행", Bus: "버스", Bicycle: "자전거",
+  Straight: "직진",
+  "Left Turn": "좌회전",
+  "Right Turn": "우회전",
+  "U Turn": "유턴",
+  Pedestrian: "보행",
+  Bus: "버스",
+  Bicycle: "자전거",
 };
 
-function formatSeconds(value: number | undefined): string { return value === undefined ? "—" : `${Math.max(0, value)}초`; }
+function formatSeconds(value: number | undefined): string {
+  return value === undefined ? "—" : `${Math.max(0, value)}`;
+}
 
 function buildSignalChip(signal: TrafficSignal): string {
   const color = STATE_COLOR[signal.state];
   const movement = MOVEMENT_LABEL[signal.movement];
-  return `<div aria-label="${movement ?? "신호"} ${formatSeconds(signal.remainingSeconds)}" style="display:flex;align-items:center;gap:5px;min-height:28px;padding:4px 7px;border:1px solid color-mix(in srgb,var(--border) 55%,transparent);border-radius:9999px;background:color-mix(in srgb,var(--card) 92%,transparent);box-shadow:0 4px 14px rgba(15,23,42,.14);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);white-space:nowrap;">
-    <span aria-hidden="true" style="display:block;width:9px;height:9px;flex:0 0 auto;border-radius:9999px;background:${color};box-shadow:0 0 0 3px color-mix(in srgb,${color} 16%,transparent);"></span>
-    <span style="font-size:18px;font-weight:800;line-height:1;color:var(--foreground);">${DIRECTION_ARROW[signal.direction]}</span>
-    <span style="font-size:12px;font-weight:800;line-height:1;color:var(--foreground);">${formatSeconds(signal.remainingSeconds)}</span>
-    ${movement && movement !== "직진" ? `<span style="font-size:9px;font-weight:700;color:var(--muted-foreground);">${movement}</span>` : ""}
+  const arrow = DIRECTION_ARROW[signal.direction];
+
+  return `<div class="signal-chip" aria-label="${movement ?? "신호"} ${formatSeconds(signal.remainingSeconds)}초">
+    <span class="signal-dot" aria-hidden="true" style="--signal-color:${color};"></span>
+    <span class="signal-arrow" aria-hidden="true">${arrow}</span>
+    <span class="signal-seconds">${formatSeconds(signal.remainingSeconds)}</span>
+    ${movement && movement !== "직진" ? `<span class="signal-movement">${movement}</span>` : ""}
   </div>`;
 }
 
 function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSignal[]): string {
   if (signals.length === 0) return "";
-  return `<div data-signal-direction="${direction}" style="position:absolute;${DIRECTION_POSITION[direction]}display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none;">${signals.map(buildSignalChip).join("")}</div>`;
+
+  return `<div class="signal-direction signal-direction-${DIRECTION_GRID_AREA[direction]}" data-signal-direction="${direction}">
+    ${signals.map(buildSignalChip).join("")}
+  </div>`;
+}
+
+function buildStyles(): string {
+  return `<style>
+    .signal-overlay-root {
+      --overlay-size: clamp(172px, 24vw, 236px);
+      --cell-gap: clamp(5px, 0.8vw, 10px);
+      width: var(--overlay-size);
+      height: var(--overlay-size);
+      position: relative;
+      pointer-events: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(34px, .55fr) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) minmax(34px, .55fr) minmax(0, 1fr);
+      grid-template-areas:
+        "northWest north northEast"
+        "west center east"
+        "southWest south southEast";
+      place-items: center;
+      overflow: visible;
+    }
+
+    .signal-direction {
+      min-width: 0;
+      max-width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--cell-gap);
+    }
+
+    .signal-direction-north,
+    .signal-direction-south {
+      width: max-content;
+    }
+
+    .signal-direction-east,
+    .signal-direction-west {
+      width: max-content;
+    }
+
+    .signal-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      min-width: 48px;
+      min-height: 28px;
+      padding: 4px 7px;
+      border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+      border-radius: 9999px;
+      background: color-mix(in srgb, var(--card) 94%, transparent);
+      box-shadow: 0 4px 14px rgba(15,23,42,.15);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      white-space: nowrap;
+      box-sizing: border-box;
+    }
+
+    .signal-dot {
+      display: block;
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border-radius: 9999px;
+      background: var(--signal-color);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal-color) 16%, transparent);
+    }
+
+    .signal-arrow {
+      display: block;
+      flex: 0 0 auto;
+      font-size: 17px;
+      font-weight: 850;
+      line-height: 1;
+      color: var(--foreground);
+    }
+
+    .signal-seconds {
+      display: block;
+      flex: 0 0 auto;
+      min-width: 16px;
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--foreground);
+    }
+
+    .signal-movement {
+      display: block;
+      max-width: 34px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--muted-foreground);
+    }
+
+    .signal-center {
+      grid-area: center;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9999px;
+      background: color-mix(in srgb, var(--card) 96%, transparent);
+      border: 2px solid var(--foreground);
+      box-shadow: 0 2px 8px rgba(15,23,42,.24);
+      z-index: 2;
+    }
+
+    .signal-direction-north { grid-area: north; }
+    .signal-direction-northEast { grid-area: northEast; }
+    .signal-direction-east { grid-area: east; }
+    .signal-direction-southEast { grid-area: southEast; }
+    .signal-direction-south { grid-area: south; }
+    .signal-direction-southWest { grid-area: southWest; }
+    .signal-direction-west { grid-area: west; }
+    .signal-direction-northWest { grid-area: northWest; }
+
+    @media (max-width: 640px) {
+      .signal-overlay-root {
+        --overlay-size: 164px;
+        --cell-gap: 4px;
+        grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) 28px minmax(0, 1fr);
+      }
+
+      .signal-chip {
+        min-width: 42px;
+        min-height: 25px;
+        gap: 4px;
+        padding: 3px 5px;
+      }
+
+      .signal-dot {
+        width: 7px;
+        height: 7px;
+      }
+
+      .signal-arrow {
+        font-size: 15px;
+      }
+
+      .signal-seconds {
+        min-width: 14px;
+        font-size: 11px;
+      }
+
+      .signal-movement {
+        display: none;
+      }
+
+      .signal-center {
+        width: 17px;
+        height: 17px;
+      }
+    }
+  </style>`;
 }
 
 function buildInnerHTML(intersection: Intersection): string {
-  const groups = DIRECTION_ORDER.map((direction) => buildDirectionGroup(direction, intersection.signals.filter((signal) => signal.direction === direction))).join("");
-  return `<div style="position:relative;width:2px;height:2px;pointer-events:none;">
-    <span aria-hidden="true" style="position:absolute;left:50%;top:50%;width:10px;height:10px;transform:translate(-50%,-50%);border-radius:9999px;background:var(--card);border:2px solid var(--foreground);box-shadow:0 2px 8px rgba(15,23,42,.22);"></span>
-    ${groups}
-  </div>`;
+  const groups = DIRECTION_ORDER
+    .map((direction) => buildDirectionGroup(
+      direction,
+      intersection.signals.filter((signal) => signal.direction === direction),
+    ))
+    .join("");
+
+  return `${buildStyles()}
+    <div class="signal-overlay-root" aria-label="선택한 교차로 신호">
+      <div class="signal-center" aria-hidden="true"></div>
+      ${groups}
+    </div>`;
 }
 
 export function createIntersectionSignalOverlayElement(intersection: Intersection): HTMLElement {
   const element = document.createElement("div");
-  element.style.cssText = "position:relative;width:2px;height:2px;pointer-events:none;z-index:15;";
+  element.style.cssText = "position:relative;pointer-events:none;z-index:15;overflow:visible;";
   element.innerHTML = buildInnerHTML(intersection);
   return element;
 }
