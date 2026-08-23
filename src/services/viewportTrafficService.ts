@@ -44,13 +44,18 @@ function toNumber(value: string | number | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeId(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 function normalizeIntersection(record: KlidIntersectionRecord): Intersection | null {
-  if (!record.crsrdId || !record.crsrdNm) return null;
+  const crsrdId = normalizeId(record.crsrdId);
+  if (!crsrdId || !record.crsrdNm) return null;
   const lat = toNumber(record.mapCtptIntLat);
   const lng = toNumber(record.mapCtptIntLot);
   if (!lat || !lng) return null;
   return {
-    crsrdId: record.crsrdId,
+    crsrdId,
     crsrdNm: record.crsrdNm,
     stdgCd: record.stdgCd,
     lclgvNm: record.lclgvNm,
@@ -193,20 +198,20 @@ function extractSignals(record: KlidSignalRecord): TrafficSignal[] {
       const remaining = record[remainingKey];
       const state = record[stateKey];
 
-      // Do not invent a signal when the API omitted both fields.
+      // The API can legitimately omit either field. Never create a value from
+      // undefined; only emit a signal when at least one real API field exists.
       if (remaining === undefined && state === undefined) continue;
 
       signals.push({
         direction,
         movement,
         state: normalizeState(state),
-        remainingSeconds: toNumber(remaining),
+        remainingSeconds: remaining === undefined ? 0 : toNumber(remaining),
         cycleSeconds: 60,
       });
     }
   }
 
-  // Preserve generic movement records when the API supplies them instead of a directional prefix.
   const rawDirection =
     record.crsrdDirNm ?? record.crsrdDrctNm ?? record.dirNm ?? record.drctNm ?? record.direction;
   const rawMovement = record.movementNm ?? record.moveDirNm ?? record.turnDirNm;
@@ -250,16 +255,15 @@ function extractSignals(record: KlidSignalRecord): TrafficSignal[] {
   };
 
   if (rawDirection && rawMovement && (rawRemaining !== undefined || rawState !== undefined)) {
-    const direction = directionMap[String(rawDirection).trim().toLowerCase()];
-    const movement = movementMap[String(rawMovement).trim().toLowerCase()];
+    const direction = directionMap[normalizeId(rawDirection).toLowerCase()];
+    const movement = movementMap[normalizeId(rawMovement).toLowerCase()];
     if (direction && movement) {
       signals.push({
         direction,
         movement,
         state: normalizeState(rawState),
-        remainingSeconds: toNumber(rawRemaining),
-        cycleSeconds:
-          toNumber(record.cycleSec ?? record.cycleTime ?? record.totCyc) || 60,
+        remainingSeconds: rawRemaining === undefined ? 0 : toNumber(rawRemaining),
+        cycleSeconds: toNumber(record.cycleSec ?? record.cycleTime ?? record.totCyc) || 60,
       });
     }
   }
@@ -268,10 +272,13 @@ function extractSignals(record: KlidSignalRecord): TrafficSignal[] {
 }
 
 async function loadSignalsForId(crsrdId: string): Promise<SignalLoadResult> {
-  const cached = signalCache.get(crsrdId);
-  if (cached) return { signals: cached, status: cached.length ? "success" : "empty" };
+  const normalizedTargetId = normalizeId(crsrdId);
+  const cached = signalCache.get(normalizedTargetId);
+  // Empty results are deliberately not treated as durable cache hits. A
+  // temporary no-data response must not permanently mask a later valid API response.
+  if (cached && cached.length > 0) return { signals: cached, status: "success" };
 
-  const pending = signalPromiseCache.get(crsrdId);
+  const pending = signalPromiseCache.get(normalizedTargetId);
   if (pending) return pending;
 
   const promise = (async (): Promise<SignalLoadResult> => {
@@ -297,29 +304,41 @@ async function loadSignalsForId(crsrdId: string): Promise<SignalLoadResult> {
                 pageNo,
                 numOfRows: SIGNAL_PAGE_ROWS,
               });
-        const match = page.items.find((item) => item.crsrdId === crsrdId) as
+
+        // Normalize both sides because API gateways can deserialize numeric IDs
+        // while the intersection endpoint returns the same ID as a string.
+        const match = page.items.find((item) => normalizeId(item.crsrdId) === normalizedTargetId) as
           | KlidSignalRecord
           | undefined;
         if (!match) continue;
 
         const signals = extractSignals(match);
-        signalCache.set(crsrdId, signals);
-        return { signals, status: signals.length ? "success" : "empty" };
+        if (signals.length > 0) {
+          signalCache.set(normalizedTargetId, signals);
+          return { signals, status: "success" };
+        }
+
+        // The intersection exists in the response, but this particular response
+        // contains no usable signal fields. Do not poison the cache with [] and
+        // do not confuse this with an API request failure.
+        signalCache.delete(normalizedTargetId);
+        return { signals: [], status: "empty" };
       }
 
-      signalCache.set(crsrdId, []);
+      signalCache.delete(normalizedTargetId);
       return { signals: [], status: "empty" };
     } catch (error) {
-      console.error("[SignalNow] 선택 교차로 신호 API 오류", { crsrdId, error });
+      console.error("[SignalNow] 선택 교차로 신호 API 오류", { crsrdId: normalizedTargetId, error });
+      signalCache.delete(normalizedTargetId);
       return { signals: [], status: "error" };
     }
   })();
 
-  signalPromiseCache.set(crsrdId, promise);
+  signalPromiseCache.set(normalizedTargetId, promise);
   try {
     return await promise;
   } finally {
-    signalPromiseCache.delete(crsrdId);
+    signalPromiseCache.delete(normalizedTargetId);
   }
 }
 
