@@ -45,6 +45,7 @@ function AppInner() {
   const signalRequestRef = useRef(0);
   const signalDataRef = useRef<Map<string, TrafficSignal[]>>(new Map());
   const signalReceivedAtRef = useRef<Map<string, number>>(new Map());
+  const signalRefreshInFlightRef = useRef(false);
 
   const handleViewportChange = useCallback(async (viewport: Viewport) => {
     const requestId = ++viewportRequestRef.current;
@@ -68,7 +69,51 @@ function AppInner() {
   useEffect(() => {
     if (!selectedId) return;
     setCountdownNow(Date.now());
-    const intervalId = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    const intervalId = window.setInterval(() => {
+      const now = Date.now();
+      setCountdownNow(now);
+
+      const refreshTargetId = selectedId;
+      const receivedAt = signalReceivedAtRef.current.get(refreshTargetId);
+      const sourceSignals = signalDataRef.current.get(refreshTargetId);
+      if (!receivedAt || !sourceSignals || signalRefreshInFlightRef.current) return;
+
+      const elapsedSeconds = Math.max(0, Math.floor((now - receivedAt) / 1000));
+      const hasExpiredSignal = sourceSignals.some((signal) => signal.remainingSeconds !== undefined && Math.max(0, signal.remainingSeconds - elapsedSeconds) <= 0);
+      if (!hasExpiredSignal) return;
+
+      signalRefreshInFlightRef.current = true;
+      debugLog("signal phase refresh start", { crsrdId: refreshTargetId, reason: "remaining-reached-zero" });
+      fetchSelectedIntersectionSignals(refreshTargetId, { forceRefresh: true })
+        .then((result) => {
+          const refreshedAt = Date.now();
+          signalDataRef.current.set(refreshTargetId, result.signals);
+          signalReceivedAtRef.current.set(refreshTargetId, refreshedAt);
+          setCountdownNow(refreshedAt);
+          setSignalStatus((prev) => ({ ...prev, [refreshTargetId]: result.status }));
+          setDebugInfo((info) => ({
+            ...info,
+            apiStatus: result.debug.apiStatus,
+            itemCount: result.debug.itemCount,
+            targetId: refreshTargetId,
+            matched: result.debug.matched,
+            extractedCount: result.signals.length,
+            finalCount: result.signals.length,
+            state: result.status,
+            reason: result.status === "empty" || result.status === "error" ? result.debug.failureReason : "",
+            signalDiagnostics: result.debug.signalDiagnostics,
+            receivedAt: refreshedAt,
+          }));
+          setIntersections((prev) => prev.map((intersection) => intersection.crsrdId === refreshTargetId ? { ...intersection, signals: result.signals } : intersection));
+          debugLog("signal phase refresh complete", { crsrdId: refreshTargetId, signalCount: result.signals.length, status: result.status });
+        })
+        .catch(() => {
+          debugLog("signal phase refresh failed", { crsrdId: refreshTargetId });
+        })
+        .finally(() => {
+          signalRefreshInFlightRef.current = false;
+        });
+    }, 1000);
     return () => window.clearInterval(intervalId);
   }, [selectedId]);
 
