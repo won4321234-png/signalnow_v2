@@ -5,7 +5,7 @@ import { FloatingButton } from "@/components/FloatingButton";
 import { Header } from "@/components/Header";
 import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
-import { fetchSelectedIntersectionSignals, type SignalLoadStatus, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
+import { fetchSelectedIntersectionSignals, type SignalLoadStatus, type SignalDiagnostic, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
 import type { DataStatus, Intersection, TrafficSignal, ViewMode } from "@/types/traffic";
 
 import { AuthProvider } from "@/auth/context/AuthContext";
@@ -18,7 +18,7 @@ const MAX_RECENT = 5;
 type Page = "map" | "mypage" | "settings";
 type Viewport = { south: number; west: number; north: number; east: number };
 
-type DebugInfo = { apiStatus: string; itemCount: number; targetId: string; matched: boolean; extractedCount: number; finalCount: number; state: string; reason: string };
+type DebugInfo = { apiStatus: string; itemCount: number; targetId: string; matched: boolean; extractedCount: number; finalCount: number; state: string; reason: string; signalDiagnostics: SignalDiagnostic[]; receivedAt: number | null };
 const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 const debugLog = (message: string, data: Record<string, unknown>) => { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); };
 
@@ -41,7 +41,7 @@ function AppInner() {
   const [signalLoadingId, setSignalLoadingId] = useState<string | null>(null);
   const [signalStatus, setSignalStatus] = useState<Record<string, SignalLoadStatus>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const [debugInfo, setDebugInfo] = useState<DebugInfo>({ apiStatus: "-", itemCount: 0, targetId: "-", matched: false, extractedCount: 0, finalCount: 0, state: "idle", reason: "" });
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({ apiStatus: "-", itemCount: 0, targetId: "-", matched: false, extractedCount: 0, finalCount: 0, state: "idle", reason: "", signalDiagnostics: [], receivedAt: null });
   const viewportRequestRef = useRef(0);
   const signalRequestRef = useRef(0);
   const signalDataRef = useRef<Map<string, TrafficSignal[]>>(new Map());
@@ -101,11 +101,11 @@ function AppInner() {
         signalReceivedAtRef.current.set(selectedId, receivedAt);
         setCountdownNow(receivedAt);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
-        setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? result.debug.failureReason : result.status === "error" ? result.debug.failureReason : "" }));
+        setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? result.debug.failureReason : result.status === "error" ? result.debug.failureReason : "", signalDiagnostics: result.debug.signalDiagnostics, receivedAt }));
         setIntersections((prev) => {
           const next = prev.map((intersection) => intersection.crsrdId === selectedId ? { ...intersection, signals: result.signals } : intersection);
           const finalCount = next.find((intersection) => intersection.crsrdId === selectedId)?.signals.length ?? 0;
-          setDebugInfo((info) => ({ ...info, targetId: selectedId, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, matched: result.debug.matched, extractedCount: result.signals.length, finalCount, state: result.status, reason: result.status === "empty" || result.status === "error" ? result.debug.failureReason : "" }));
+          setDebugInfo((info) => ({ ...info, targetId: selectedId, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, matched: result.debug.matched, extractedCount: result.signals.length, finalCount, state: result.status, reason: result.status === "empty" || result.status === "error" ? result.debug.failureReason : "", signalDiagnostics: result.debug.signalDiagnostics, receivedAt }));
           debugLog("signal state", { selectedId, fetchedCount: result.signals.length, status: result.status, finalCount });
           return next;
         });
@@ -135,7 +135,7 @@ function AppInner() {
   const recordRecent = useCallback((id: string) => setRecentIds((prev) => [id, ...prev.filter((r) => r !== id)].slice(0, MAX_RECENT)), []);
   const handleSelectIntersection = useCallback((intersectionId: string) => {
     debugLog("intersection selected", { crsrdId: intersectionId, hasCrsrdId: Boolean(intersectionId) });
-    setDebugInfo((info) => ({ ...info, targetId: intersectionId || "-", state: intersectionId ? "loading" : "blocked", reason: intersectionId ? "" : "missing-crsrdId" }));
+    setDebugInfo((info) => ({ ...info, targetId: intersectionId || "-", state: intersectionId ? "loading" : "blocked", reason: intersectionId ? "" : "missing-crsrdId", signalDiagnostics: [], receivedAt: null }));
     setSelectedId(intersectionId);
     setSheetOpen(true);
     recordRecent(intersectionId);
@@ -150,6 +150,13 @@ function AppInner() {
   const panelStatus: DataStatus = status === "loading" ? "loading" : status === "error" ? "error" : "success";
   const selectedSignalStatus = selectedId ? signalStatus[selectedId] : undefined;
   const debug = debugEnabled();
+  const debugReceivedAt = debugInfo.receivedAt;
+  const debugElapsed = debugReceivedAt ? Math.max(0, Math.floor((countdownNow - debugReceivedAt) / 1000)) : 0;
+  const abnormalDiagnostics = debugInfo.signalDiagnostics.filter((item) => typeof item.parsedRemaining === "number" && item.parsedRemaining > 300).slice(0, 5);
+  const firstDiagnostic = debugInfo.signalDiagnostics[0];
+  const firstSignal = firstDiagnostic ? selectedIntersection?.signals.find((signal) => signal.direction === firstDiagnostic.direction && signal.movement === firstDiagnostic.movement) : undefined;
+  const firstBase = firstDiagnostic?.parsedRemaining;
+  const firstDisplay = firstSignal?.remainingSeconds;
 
   return (
     <div className="h-svh overflow-hidden bg-background">
@@ -164,7 +171,7 @@ function AppInner() {
           <FloatingButton className={`fixed right-4 z-20 transition-[bottom] duration-300 ease-out ${sheetOpen ? "bottom-[104px] lg:bottom-8" : "bottom-6 lg:bottom-8"}`} onClick={() => {}} />
           <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
           {selectedSignalStatus === "error" && <div className="absolute bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 신호 데이터를 불러오지 못했습니다. 다시 선택해 주세요.</div>}
-          {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-50 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}</div>}
+          {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-50 max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}<div className="mt-1 border-t border-border pt-1 font-semibold">Signal Debug</div>{firstDiagnostic ? <><div>Direction: {firstDiagnostic.direction}</div><div>Movement: {firstDiagnostic.movement}</div><div>Field: {firstDiagnostic.field}</div><div>Raw Remaining: {String(firstDiagnostic.rawRemaining ?? "undefined")}</div><div>Parsed Remaining: {String(firstDiagnostic.parsedRemaining ?? "undefined")}</div><div>Signal Remaining: {String(firstSignal?.remainingSeconds ?? "undefined")}</div><div>Received At: {debugReceivedAt ? new Date(debugReceivedAt).toISOString() : "-"}</div><div>Elapsed: {debugElapsed}</div><div>Base Remaining: {String(firstBase ?? "undefined")}</div><div>Final Display: {String(firstDisplay ?? "undefined")}</div>{typeof firstDiagnostic.parsedRemaining === "number" && firstDiagnostic.parsedRemaining > 300 && <div className="font-semibold text-destructive">⚠ Abnormal Remaining: {firstDiagnostic.parsedRemaining}</div>}</> : <div>No signal diagnostic</div>}{abnormalDiagnostics.length > 0 && <><div className="mt-1 border-t border-border pt-1 font-semibold">Abnormal Signals</div>{abnormalDiagnostics.map((item) => <div key={`${item.direction}-${item.movement}-${item.field}`} className="mt-1"><div>{item.direction} / {item.movement}</div><div>Field: {item.field}</div><div>Raw: {String(item.rawRemaining ?? "undefined")} → Parsed: {String(item.parsedRemaining ?? "undefined")}</div></div>)}</>}</div>}
           <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} onRetry={() => { if (!selectedId) return; signalReceivedAtRef.current.delete(selectedId); setSignalStatus((prev) => { const next = { ...prev }; delete next[selectedId]; return next; }); }} />
         </div>
       )}
