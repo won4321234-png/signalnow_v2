@@ -96,7 +96,7 @@ function AppInner() {
       .finally(() => { if (active) setSignalLoadingId((current) => (current === selectedId ? null : current)); });
 
     return () => { active = false; };
-  }, [selectedId, sheetOpen, signalStatus]);
+  }, [selectedId, sheetOpen]);
 
   const selectedIntersection = useMemo(() => (selectedId ? intersections.find((intersection) => intersection.crsrdId === selectedId) ?? null : null), [selectedId, intersections]);
   const recentIntersections = useMemo(() => recentIds.map((id) => intersections.find((intersection) => intersection.crsrdId === id)).filter((i): i is Intersection => i !== undefined), [recentIds, intersections]);
