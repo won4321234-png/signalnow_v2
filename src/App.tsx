@@ -71,9 +71,8 @@ function AppInner() {
     if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty" || currentSignalStatus === "error") return;
 
     const requestId = ++signalRequestRef.current;
-    let active = true;
     const safetyTimeoutId = window.setTimeout(() => {
-      if (!active || requestId !== signalRequestRef.current) return;
+      if (requestId !== signalRequestRef.current) return;
       setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
       setSignalLoadingId((current) => (current === selectedId ? null : current));
       setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-load-timeout" }));
@@ -86,7 +85,7 @@ function AppInner() {
 
     fetchSelectedIntersectionSignals(selectedId)
       .then((result) => {
-        if (!active || requestId !== signalRequestRef.current) return;
+        if (requestId !== signalRequestRef.current) return;
         signalDataRef.current.set(selectedId, result.signals);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
         setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? result.debug.failureReason : result.status === "error" ? result.debug.failureReason : "" }));
@@ -99,26 +98,20 @@ function AppInner() {
         });
       })
       .catch(() => {
-        if (!active || requestId !== signalRequestRef.current) return;
+        if (requestId !== signalRequestRef.current) return;
         setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
         setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-fetch-error" }));
       })
       .finally(() => {
         window.clearTimeout(safetyTimeoutId);
-        if (!active || requestId !== signalRequestRef.current) return;
+        if (requestId !== signalRequestRef.current) return;
         setSignalLoadingId((current) => (current === selectedId ? null : current));
       });
 
     return () => {
-      active = false;
-      window.clearTimeout(safetyTimeoutId);
-      setSignalStatus((prev) => {
-        if (prev[selectedId] !== "loading") return prev;
-        const next = { ...prev };
-        delete next[selectedId];
-        return next;
-      });
-      setSignalLoadingId((current) => (current === selectedId ? null : current));
+      // Do not clear the request's terminal-state path here. React may clean up
+      // an effect before the promise settles (for example when sheetOpen changes).
+      // The request id prevents stale results from touching a newer request.
     };
   }, [selectedId, sheetOpen]);
 
@@ -157,7 +150,7 @@ function AppInner() {
           <FloatingButton className={`fixed right-4 z-20 transition-[bottom] duration-300 ease-out ${sheetOpen ? "bottom-[104px] lg:bottom-8" : "bottom-6 lg:bottom-8"}`} onClick={() => {}} />
           <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
           {selectedSignalStatus === "error" && <div className="absolute bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 신호 데이터를 불러오지 못했습니다. 다시 선택해 주세요.</div>}
-          {debug && <div className="absolute bottom-4 right-4 z-50 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}</div>}
+          {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-50 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}</div>}
           <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} onRetry={() => { if (!selectedId) return; setSignalStatus((prev) => { const next = { ...prev }; delete next[selectedId]; return next; }); }} />
         </div>
       )}
