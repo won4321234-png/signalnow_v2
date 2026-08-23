@@ -13,6 +13,10 @@ const DIRECTION_LABEL: Record<ApproachDirection, string> = {
   NorthWest: "북서",
 };
 
+// KLID's nt/et/st/wt/ne/se/sw/nw fields are the approach-direction categories
+// already normalized by intersectionService. They are geographic directions,
+// not screen coordinates. We therefore use their 8-way geographic bearings
+// directly and do not invent a per-intersection road rotation.
 const DIRECTION_ANGLE: Record<ApproachDirection, number> = {
   North: 0,
   NorthEast: 45,
@@ -22,17 +26,6 @@ const DIRECTION_ANGLE: Record<ApproachDirection, number> = {
   SouthWest: 225,
   West: 270,
   NorthWest: 315,
-};
-
-const DIRECTION_GRID_AREA: Record<ApproachDirection, string> = {
-  North: "north",
-  NorthEast: "northEast",
-  East: "east",
-  SouthEast: "southEast",
-  South: "south",
-  SouthWest: "southWest",
-  West: "west",
-  NorthWest: "northWest",
 };
 
 const STATE_COLOR: Record<SignalPhaseState, string> = {
@@ -62,9 +55,6 @@ function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): Tra
       : signal.movement !== "Pedestrian",
   );
 
-  // Do not merge different movements just because their remaining time matches.
-  // This identity represents the same rendered signal record, so only exact
-  // duplicates from the source array are removed at the presentation boundary.
   const seen = new Set<string>();
   return modeSignals.filter((signal) => {
     const key = [
@@ -117,9 +107,10 @@ function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSigna
   if (signals.length === 0) return "";
 
   const directionLabel = DIRECTION_LABEL[direction];
-  const directionArrow = DIRECTION_ORDER.includes(direction) ? arrowFromAngle(DIRECTION_ANGLE[direction]) : "";
+  const directionArrow = arrowFromAngle(DIRECTION_ANGLE[direction]);
+  const angle = DIRECTION_ANGLE[direction];
 
-  return `<div class="signal-direction signal-direction-${DIRECTION_GRID_AREA[direction]}" data-signal-direction="${direction}" aria-label="${directionLabel} 방향">
+  return `<div class="signal-direction" data-signal-direction="${direction}" data-direction-angle="${angle}" aria-label="${directionLabel} 방향" style="--direction-angle:${angle}deg;">
     <div class="signal-direction-label">
       <span>${directionLabel}</span>
       <span class="signal-direction-arrow" aria-hidden="true">${directionArrow}</span>
@@ -134,31 +125,37 @@ function buildStyles(): string {
   return `<style>
     .signal-overlay-root {
       --overlay-size: clamp(210px, 27vw, 280px);
-      --cell-gap: clamp(7px, 0.9vw, 12px);
+      --direction-radius: calc(var(--overlay-size) * .34);
       width: var(--overlay-size);
       height: var(--overlay-size);
       position: relative;
       pointer-events: none;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
-      grid-template-rows: minmax(0, 1fr) 34px minmax(0, 1fr);
-      grid-template-areas:
-        "northWest north northEast"
-        "west center east"
-        "southWest south southEast";
-      place-items: center;
       overflow: visible;
     }
 
+    /*
+     * The direction groups are positioned from one geographic center instead
+     * of a screen-oriented 3x3 grid. This makes the eight KLID approach
+     * directions visibly radiate from the selected intersection while each
+     * card remains upright and readable.
+     */
     .signal-direction {
+      position: absolute;
+      left: 50%;
+      top: 50%;
       min-width: 0;
-      max-width: 100%;
+      max-width: 46%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       gap: 4px;
-      place-self: center;
+      transform:
+        translate(-50%, -50%)
+        rotate(var(--direction-angle))
+        translateY(calc(-1 * var(--direction-radius)))
+        rotate(calc(-1 * var(--direction-angle)));
+      transform-origin: center center;
     }
 
     .signal-direction-signals {
@@ -270,7 +267,9 @@ function buildStyles(): string {
     }
 
     .signal-center {
-      grid-area: center;
+      position: absolute;
+      left: 50%;
+      top: 50%;
       width: 22px;
       height: 22px;
       display: flex;
@@ -280,24 +279,14 @@ function buildStyles(): string {
       background: color-mix(in srgb, var(--card) 96%, transparent);
       border: 2px solid var(--foreground);
       box-shadow: 0 2px 8px rgba(15,23,42,.24);
+      transform: translate(-50%, -50%);
       z-index: 2;
     }
-
-    .signal-direction-north { grid-area: north; }
-    .signal-direction-northEast { grid-area: northEast; }
-    .signal-direction-east { grid-area: east; }
-    .signal-direction-southEast { grid-area: southEast; }
-    .signal-direction-south { grid-area: south; }
-    .signal-direction-southWest { grid-area: southWest; }
-    .signal-direction-west { grid-area: west; }
-    .signal-direction-northWest { grid-area: northWest; }
 
     @media (max-width: 640px) {
       .signal-overlay-root {
         --overlay-size: 190px;
-        --cell-gap: 5px;
-        grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
-        grid-template-rows: minmax(0, 1fr) 28px minmax(0, 1fr);
+        --direction-radius: calc(var(--overlay-size) * .34);
       }
 
       .signal-direction-label {
@@ -355,7 +344,7 @@ function buildInnerHTML(intersection: Intersection, viewMode: ViewMode): string 
     .join("");
 
   return `${buildStyles()}
-    <div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "grid" : "none"};">
+    <div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};">
       <div class="signal-center" aria-hidden="true"></div>
       ${groups}
     </div>`;
