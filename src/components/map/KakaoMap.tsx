@@ -9,6 +9,7 @@ import { createMarkerElement, updateMarkerState } from "@/components/map/SignalM
 import { createIntersectionSignalOverlayElement, updateIntersectionSignalOverlayElement } from "@/components/map/IntersectionSignalOverlay";
 import { CurrentLocationButton } from "@/components/map/CurrentLocationButton";
 import { MapControls } from "@/components/map/MapControls";
+import { MapCompass } from "@/components/map/MapCompass";
 import { cn } from "@/lib/utils";
 
 type Viewport = { south: number; west: number; north: number; east: number };
@@ -148,7 +149,7 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
 
   const handleLocate = useCallback(() => getLocation(), [getLocation]);
   if (sdkError) return <div className={cn("flex h-full w-full items-center justify-center bg-muted", className)}><div className="flex flex-col items-center gap-3 px-6 text-center"><WifiOff className="size-10 text-muted-foreground" /><p className="text-sm font-semibold text-foreground">지도를 불러올 수 없습니다</p><p className="text-xs text-muted-foreground">카카오맵 API 키를 확인하거나 네트워크 상태를 점검하세요</p></div></div>;
-  return <div className={cn("relative h-full w-full overflow-hidden", className)}><div ref={containerRef} className="h-full w-full" role="application" aria-label="교차로 지도" />{!sdkLoaded && <div className="absolute inset-0 z-10 flex items-center justify-center bg-map-surface animate-fade-in"><div className="flex flex-col items-center gap-3"><MapPin className="size-10 animate-bounce text-primary" /><p className="text-sm font-medium text-muted-foreground">카카오맵 불러오는 중…</p></div></div>}<MapControls map={mapInstance} /><CurrentLocationButton onLocate={handleLocate} loading={locationLoading} error={locationError} className="absolute bottom-24 right-4 z-20" /></div>;
+  return <div className={cn("relative h-full w-full overflow-hidden", className)}><div ref={containerRef} className="h-full w-full" role="application" aria-label="교차로 지도" />{!sdkLoaded && <div className="absolute inset-0 z-10 flex items-center justify-center bg-map-surface animate-fade-in"><div className="flex flex-col items-center gap-3"><MapPin className="size-10 animate-bounce text-primary" /><p className="text-sm font-medium text-muted-foreground">카카오맵 불러오는 중…</p></div></div>}<MapControls map={mapInstance} /><MapCompass /><CurrentLocationButton onLocate={handleLocate} loading={locationLoading} error={locationError} className="absolute bottom-24 right-4 z-20" /></div>;
 }
 
 export default KakaoMap;
