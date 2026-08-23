@@ -112,8 +112,8 @@ export function phaseColor(phase: SignalPhaseState): SignalColor {
   return PHASE_COLOR[phase];
 }
 
-export function phaseProgress(remainingSeconds: number, cycleSeconds: number): number {
-  if (cycleSeconds <= 0) return 0;
+export function phaseProgress(remainingSeconds: number | undefined, cycleSeconds: number): number | undefined {
+  if (remainingSeconds === undefined || cycleSeconds <= 0) return undefined;
   const elapsed = cycleSeconds - remainingSeconds;
   return Math.min(1, Math.max(0, elapsed / cycleSeconds));
 }
