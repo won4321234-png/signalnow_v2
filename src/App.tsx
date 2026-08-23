@@ -131,6 +131,7 @@ function AppInner() {
     if (!receivedAt) return { ...intersection, signals: sourceSignals };
     return { ...intersection, signals: getCountdownSignals(sourceSignals, receivedAt, countdownNow) };
   }, [selectedId, intersections, countdownNow]);
+
   const recentIntersections = useMemo(() => recentIds.map((id) => intersections.find((intersection) => intersection.crsrdId === id)).filter((i): i is Intersection => i !== undefined), [recentIds, intersections]);
   const recordRecent = useCallback((id: string) => setRecentIds((prev) => [id, ...prev.filter((r) => r !== id)].slice(0, MAX_RECENT)), []);
   const handleSelectIntersection = useCallback((intersectionId: string) => {
@@ -172,10 +173,22 @@ function AppInner() {
           <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
           {selectedSignalStatus === "error" && <div className="absolute bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 신호 데이터를 불러오지 못했습니다. 다시 선택해 주세요.</div>}
           {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-50 max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}<div className="mt-1 border-t border-border pt-1 font-semibold">Signal Debug</div>{firstDiagnostic ? <><div>Direction: {firstDiagnostic.direction}</div><div>Movement: {firstDiagnostic.movement}</div><div>Field: {firstDiagnostic.field}</div><div>Raw Remaining: {String(firstDiagnostic.rawRemaining ?? "undefined")}</div><div>Parsed Remaining: {String(firstDiagnostic.parsedRemaining ?? "undefined")}</div><div>Signal Remaining: {String(firstSignal?.remainingSeconds ?? "undefined")}</div><div>Received At: {debugReceivedAt ? new Date(debugReceivedAt).toISOString() : "-"}</div><div>Elapsed: {debugElapsed}</div><div>Base Remaining: {String(firstBase ?? "undefined")}</div><div>Final Display: {String(firstDisplay ?? "undefined")}</div>{typeof firstDiagnostic.parsedRemaining === "number" && firstDiagnostic.parsedRemaining > 300 && <div className="font-semibold text-destructive">⚠ Abnormal Remaining: {firstDiagnostic.parsedRemaining}</div>}</> : <div>No signal diagnostic</div>}{abnormalDiagnostics.length > 0 && <div className="mt-1 border-t border-border pt-1"><div className="font-semibold">Abnormal Signals</div>{abnormalDiagnostics.map((item, index) => <div key={`${item.direction}-${item.movement}-${index}`}>{index + 1}. {item.direction} / {item.movement} / {item.field} / {String(item.rawRemaining ?? "undefined")} / {String(item.parsedRemaining ?? "undefined")}</div>)}</div>}</div>}
-          <BottomSheet open={sheetOpen} onOpenChange={(open) => { if (!open) handleCloseSheet(); }} intersection={selectedIntersection} loading={signalLoadingId === selectedId} mode={viewMode} onModeChange={setViewMode} onToggleFavorite={handleToggleFavorite} />
+          <BottomSheet
+            open={sheetOpen}
+            intersection={selectedIntersection}
+            status={panelStatus}
+            signalLoading={signalLoadingId === selectedId}
+            viewMode={viewMode}
+            favorites={favorites}
+            recent={recentIntersections}
+            onToggleFavorite={handleToggleFavorite}
+            onSelectRecent={handleSelectIntersection}
+            onClearRecent={handleClearRecent}
+            onClose={handleCloseSheet}
+          />
         </div>
       )}
-      {page === "mypage" && <MyPage onBack={handleBackToMap} />}
+      {page === "mypage" && <MyPage onBack={handleBackToMap} onSettingsClick={handleSettingsClick} />}
       {page === "settings" && <SettingsPage onBack={handleBackToMap} />}
       <LoginModal open={loginOpen} onOpenChange={setLoginOpen} />
     </div>
