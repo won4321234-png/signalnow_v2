@@ -48,15 +48,22 @@ function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): Tra
   return signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
 }
 
+function getSignalArrow(signal: TrafficSignal): string {
+  // Driver signals represent the approach direction. Pedestrian signals represent
+  // the crossing flow visually, so they intentionally use a bidirectional arrow.
+  return signal.movement === "Pedestrian" ? "↔" : DIRECTION_ARROW[signal.direction];
+}
+
 function buildSignalChip(signal: TrafficSignal): string {
   const color = STATE_COLOR[signal.state];
   const movement = MOVEMENT_LABEL[signal.movement];
-  const arrow = DIRECTION_ARROW[signal.direction];
+  const arrow = getSignalArrow(signal);
+  const seconds = formatSeconds(signal.remainingSeconds);
 
-  return `<div class="signal-chip" aria-label="${movement ?? "신호"} ${formatSeconds(signal.remainingSeconds)}초">
+  return `<div class="signal-chip" aria-label="${movement ?? "신호"} ${seconds}초">
     <span class="signal-dot" aria-hidden="true" style="--signal-color:${color};"></span>
     <span class="signal-arrow" aria-hidden="true">${arrow}</span>
-    <span class="signal-seconds">${formatSeconds(signal.remainingSeconds)}</span>
+    <span class="signal-seconds">${seconds}</span>
     ${movement && movement !== "직진" ? `<span class="signal-movement">${movement}</span>` : ""}
   </div>`;
 }
@@ -97,15 +104,17 @@ function buildStyles(): string {
       align-items: center;
       justify-content: center;
       gap: var(--cell-gap);
+      place-self: center;
     }
 
     .signal-direction-north,
-    .signal-direction-south {
-      width: max-content;
-    }
-
+    .signal-direction-south,
     .signal-direction-east,
-    .signal-direction-west {
+    .signal-direction-west,
+    .signal-direction-northEast,
+    .signal-direction-southEast,
+    .signal-direction-southWest,
+    .signal-direction-northWest {
       width: max-content;
     }
 
@@ -140,6 +149,8 @@ function buildStyles(): string {
     .signal-arrow {
       display: block;
       flex: 0 0 auto;
+      min-width: 17px;
+      text-align: center;
       font-size: 17px;
       font-weight: 850;
       line-height: 1;
@@ -212,6 +223,7 @@ function buildStyles(): string {
       }
 
       .signal-arrow {
+        min-width: 15px;
         font-size: 15px;
       }
 
