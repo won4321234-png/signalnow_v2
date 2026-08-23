@@ -78,13 +78,10 @@ function AppInner() {
       if (debugEnabled() && !selectedId) setDebugInfo((info) => ({ ...info, state: "idle", reason: "no-selected-id" }));
       return;
     }
-
     const currentSignalStatus = signalStatus[selectedId];
     setDebugInfo((info) => ({ ...info, targetId: selectedId, state: currentSignalStatus ?? "loading", reason: "" }));
     debugLog("signal fetch start", { crsrdId: selectedId });
-
     if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty" || currentSignalStatus === "error") return;
-
     const requestId = ++signalRequestRef.current;
     const safetyTimeoutId = window.setTimeout(() => {
       if (requestId !== signalRequestRef.current) return;
@@ -93,11 +90,9 @@ function AppInner() {
       setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-load-timeout" }));
       debugLog("FAILURE: signal loading safety timeout", { crsrdId: selectedId, timeoutMs: 15000 });
     }, 15000);
-
     setSignalLoadingId(selectedId);
     setSignalStatus((prev) => ({ ...prev, [selectedId]: "loading" }));
     setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "loading", reason: "" }));
-
     fetchSelectedIntersectionSignals(selectedId)
       .then((result) => {
         if (requestId !== signalRequestRef.current) return;
@@ -125,7 +120,6 @@ function AppInner() {
         if (requestId !== signalRequestRef.current) return;
         setSignalLoadingId((current) => (current === selectedId ? null : current));
       });
-
     return () => {};
   }, [selectedId, sheetOpen]);
 
@@ -153,7 +147,6 @@ function AppInner() {
   const handleProfileClick = useCallback(() => setPage("mypage"), []);
   const handleBackToMap = useCallback(() => setPage("map"), []);
   const handleSettingsClick = useCallback(() => setPage("settings"), []);
-
   const panelStatus: DataStatus = status === "loading" ? "loading" : status === "error" ? "error" : "success";
   const selectedSignalStatus = selectedId ? signalStatus[selectedId] : undefined;
   const debug = debugEnabled();
@@ -163,7 +156,7 @@ function AppInner() {
       {page === "map" && (
         <div className="relative h-full w-full">
           <div className={`absolute inset-0 transition-[padding] duration-300 ease-out ${sheetOpen ? "lg:pr-[360px]" : "lg:pr-0"}`}>
-            <KakaoMap intersections={intersections} selectedIntersectionId={selectedId} favoriteIds={favorites} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} />
+            <KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} />
           </div>
           <Header onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
           <div className="pointer-events-none absolute left-3 top-16 z-20 lg:hidden"><div className="pointer-events-auto w-[calc(100vw-1.5rem)] max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} /></div></div>
