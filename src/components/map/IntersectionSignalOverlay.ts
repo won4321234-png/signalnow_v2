@@ -1,4 +1,4 @@
-import type { ApproachDirection, Intersection, SignalPhaseState, TrafficSignal } from "@/types/traffic";
+import type { ApproachDirection, Intersection, SignalPhaseState, TrafficSignal, ViewMode } from "@/types/traffic";
 
 const DIRECTION_ORDER: ApproachDirection[] = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"];
 
@@ -42,6 +42,10 @@ const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = {
 
 function formatSeconds(value: number | undefined): string {
   return value === undefined ? "—" : `${Math.max(0, value)}`;
+}
+
+function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): TrafficSignal[] {
+  return signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
 }
 
 function buildSignalChip(signal: TrafficSignal): string {
@@ -228,28 +232,29 @@ function buildStyles(): string {
   </style>`;
 }
 
-function buildInnerHTML(intersection: Intersection): string {
+function buildInnerHTML(intersection: Intersection, viewMode: ViewMode): string {
+  const signals = filterSignalsForMode(intersection.signals, viewMode);
   const groups = DIRECTION_ORDER
     .map((direction) => buildDirectionGroup(
       direction,
-      intersection.signals.filter((signal) => signal.direction === direction),
+      signals.filter((signal) => signal.direction === direction),
     ))
     .join("");
 
   return `${buildStyles()}
-    <div class="signal-overlay-root" aria-label="선택한 교차로 신호">
+    <div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "grid" : "none"};">
       <div class="signal-center" aria-hidden="true"></div>
       ${groups}
     </div>`;
 }
 
-export function createIntersectionSignalOverlayElement(intersection: Intersection): HTMLElement {
+export function createIntersectionSignalOverlayElement(intersection: Intersection, viewMode: ViewMode): HTMLElement {
   const element = document.createElement("div");
   element.style.cssText = "position:relative;pointer-events:none;z-index:15;overflow:visible;";
-  element.innerHTML = buildInnerHTML(intersection);
+  element.innerHTML = buildInnerHTML(intersection, viewMode);
   return element;
 }
 
-export function updateIntersectionSignalOverlayElement(element: HTMLElement, intersection: Intersection): void {
-  element.innerHTML = buildInnerHTML(intersection);
+export function updateIntersectionSignalOverlayElement(element: HTMLElement, intersection: Intersection, viewMode: ViewMode): void {
+  element.innerHTML = buildInnerHTML(intersection, viewMode);
 }
