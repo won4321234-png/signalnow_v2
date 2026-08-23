@@ -36,6 +36,7 @@ function AppInner() {
   const [signalStatus, setSignalStatus] = useState<Record<string, SignalLoadStatus>>({});
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({ apiStatus: "-", itemCount: 0, targetId: "-", matched: false, extractedCount: 0, finalCount: 0, state: "idle", reason: "" });
   const viewportRequestRef = useRef(0);
+  const signalRequestRef = useRef(0);
   const signalDataRef = useRef<Map<string, TrafficSignal[]>>(new Map());
 
   const handleViewportChange = useCallback(async (viewport: Viewport) => {
@@ -69,14 +70,23 @@ function AppInner() {
 
     if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty" || currentSignalStatus === "error") return;
 
+    const requestId = ++signalRequestRef.current;
     let active = true;
+    const safetyTimeoutId = window.setTimeout(() => {
+      if (!active || requestId !== signalRequestRef.current) return;
+      setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
+      setSignalLoadingId((current) => (current === selectedId ? null : current));
+      setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-load-timeout" }));
+      debugLog("FAILURE: signal loading safety timeout", { crsrdId: selectedId, timeoutMs: 15000 });
+    }, 15000);
+
     setSignalLoadingId(selectedId);
     setSignalStatus((prev) => ({ ...prev, [selectedId]: "loading" }));
     setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "loading", reason: "" }));
 
     fetchSelectedIntersectionSignals(selectedId)
       .then((result) => {
-        if (!active) return;
+        if (!active || requestId !== signalRequestRef.current) return;
         signalDataRef.current.set(selectedId, result.signals);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
         setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? result.debug.failureReason : result.status === "error" ? result.debug.failureReason : "" }));
@@ -89,13 +99,27 @@ function AppInner() {
         });
       })
       .catch(() => {
-        if (!active) return;
+        if (!active || requestId !== signalRequestRef.current) return;
         setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
         setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-fetch-error" }));
       })
-      .finally(() => { if (active) setSignalLoadingId((current) => (current === selectedId ? null : current)); });
+      .finally(() => {
+        window.clearTimeout(safetyTimeoutId);
+        if (!active || requestId !== signalRequestRef.current) return;
+        setSignalLoadingId((current) => (current === selectedId ? null : current));
+      });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.clearTimeout(safetyTimeoutId);
+      setSignalStatus((prev) => {
+        if (prev[selectedId] !== "loading") return prev;
+        const next = { ...prev };
+        delete next[selectedId];
+        return next;
+      });
+      setSignalLoadingId((current) => (current === selectedId ? null : current));
+    };
   }, [selectedId, sheetOpen]);
 
   const selectedIntersection = useMemo(() => (selectedId ? intersections.find((intersection) => intersection.crsrdId === selectedId) ?? null : null), [selectedId, intersections]);
