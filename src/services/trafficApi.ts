@@ -8,8 +8,8 @@ export interface KlidSignalRecord {
 }
 interface KlidResponseEnvelope { response?: { header?: ApiHeader; body?: ApiBody }; header?: ApiHeader; body?: ApiBody; }
 interface ApiHeader { resultCode?: string; resultMsg?: string; }
-interface ApiBody { totalCount?: number | string; pageNo?: number | string; numOfRows?: number | string; items?: { item?: (KlidIntersectionRecord | KlidSignalRecord) | (KlidIntersectionRecord | KlidSignalRecord)[] }; }
-export interface TrafficApiPageResult { totalCount: number; items: Array<KlidIntersectionRecord | KlidSignalRecord>; }
+interface ApiBody { totalCount?: number | string; pageNo?: number | string; numOfRows?: number | string; items?: { item?: Record<string, unknown> | Record<string, unknown>[] }; }
+export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; }
 export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; basePath?: string; }
 
 function debugEnabled() { return new URLSearchParams(window.location.search).get("debug") === "1"; }
@@ -19,7 +19,7 @@ function toArray<T>(value: T | T[] | undefined): T[] { if (!value) return []; re
 async function parseJsonResponse(response: Response): Promise<KlidResponseEnvelope> { const text = await response.text(); if (!text.trim()) throw new Error("Empty response from traffic API."); return JSON.parse(text) as KlidResponseEnvelope; }
 function normalizeServiceKey(serviceKey: string): string { const trimmed = serviceKey.trim(); try { return decodeURIComponent(trimmed); } catch { return trimmed; } }
 
-async function fetchTrafficApiPage({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult> {
+async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
   const normalizedServiceKey = normalizeServiceKey(serviceKey);
   const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); directParams.set("serviceKey", normalizedServiceKey);
   const proxyParams = new URLSearchParams(directParams);
@@ -40,8 +40,8 @@ async function fetchTrafficApiPage({ path, serviceKey, stdgCd, pageNo = 1, numOf
   debugLog("tl_drct_info response", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount });
   logDev("서울 교차로 API 응답", path, { resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: body?.totalCount ?? 0, itemCount });
   if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") { const message = header.resultMsg ?? "Traffic API returned an error."; if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") return { totalCount: 0, items: [] }; throw new Error(message); }
-  return { totalCount: Number(body?.totalCount ?? 0), items: toArray(body?.items?.item) };
+  return { totalCount: Number(body?.totalCount ?? 0), items: toArray(body?.items?.item) as T[] };
 }
 
-export async function fetchTrafficMapInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult> { return fetchTrafficApiPage({ ...options, path: "/crsrd_map_info" }); }
-export async function fetchTrafficSignalInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult> { return fetchTrafficApiPage({ ...options, path: "/tl_drct_info" }); }
+export async function fetchTrafficMapInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult<KlidIntersectionRecord>> { return fetchTrafficApiPage<KlidIntersectionRecord>({ ...options, path: "/crsrd_map_info" }); }
+export async function fetchTrafficSignalInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult<KlidSignalRecord>> { return fetchTrafficApiPage<KlidSignalRecord>({ ...options, path: "/tl_drct_info" }); }
