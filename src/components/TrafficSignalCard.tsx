@@ -79,6 +79,9 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
           const color: SignalColor = phaseColor(sig.state);
           const progress = phaseProgress(sig.remainingSeconds, sig.cycleSeconds);
           const Icon = MOVEMENT_ICON_MAP[MOVEMENT_ICONS[sig.movement]];
+          const displayRemaining = sig.remainingSeconds === undefined
+            ? undefined
+            : Math.floor(Math.max(0, sig.remainingSeconds));
 
           return (
             <div key={`${sig.direction}-${sig.movement}-${idx}`}>
@@ -99,9 +102,9 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
 
                 <div className="flex shrink-0 items-baseline gap-0.5">
                   <span className={cn("text-xl font-extrabold tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>
-                    {sig.remainingSeconds ?? "—"}
+                    {displayRemaining ?? "—"}
                   </span>
-                  {sig.remainingSeconds !== undefined && (
+                  {displayRemaining !== undefined && (
                     <span className="text-[10px] font-semibold text-muted-foreground">s</span>
                   )}
                 </div>
