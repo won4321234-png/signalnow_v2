@@ -79,11 +79,11 @@ function AppInner() {
         if (!active) return;
         signalDataRef.current.set(selectedId, result.signals);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
-        setDebugInfo((info) => ({ ...info, targetId: selectedId, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? "no-signals" : result.status === "error" ? "signal-fetch-error" : "" }));
+        setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" ? result.debug.failureReason : result.status === "error" ? result.debug.failureReason : "" }));
         setIntersections((prev) => {
           const next = prev.map((intersection) => intersection.crsrdId === selectedId ? { ...intersection, signals: result.signals } : intersection);
           const finalCount = next.find((intersection) => intersection.crsrdId === selectedId)?.signals.length ?? 0;
-          setDebugInfo((info) => ({ ...info, targetId: selectedId, extractedCount: result.signals.length, finalCount, state: result.status }));
+          setDebugInfo((info) => ({ ...info, targetId: selectedId, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, matched: result.debug.matched, extractedCount: result.signals.length, finalCount, state: result.status, reason: result.status === "empty" || result.status === "error" ? result.debug.failureReason : "" }));
           debugLog("signal state", { selectedId, fetchedCount: result.signals.length, status: result.status, finalCount });
           return next;
         });
