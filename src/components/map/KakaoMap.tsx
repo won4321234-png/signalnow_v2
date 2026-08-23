@@ -14,6 +14,7 @@ type Viewport = { south: number; west: number; north: number; east: number };
 const DEFAULT_CENTER = { lat: 37.5665, lng: 126.978 } as const;
 const DEFAULT_LEVEL = 9;
 const VIEWPORT_PADDING_RATIO = 0.2;
+const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 
 export interface KakaoMapProps {
   intersections: Intersection[];
@@ -126,7 +127,10 @@ export function KakaoMap({ intersections, selectedIntersectionId, favoriteIds, o
       }
 
       const element = createMarkerElement(intersection, isSelected, isFavorite);
-      element.addEventListener("click", () => onSelectRef.current(intersection.crsrdId));
+      element.addEventListener("click", () => {
+        if (debugEnabled()) console.log("[SignalNow debug] marker click", { intersectionId: intersection.crsrdId, crsrdId: intersection.crsrdId, hasCrsrdId: Boolean(intersection.crsrdId) });
+        onSelectRef.current(intersection.crsrdId);
+      });
       const overlay = new kakao.maps.CustomOverlay({
         position: new kakao.maps.LatLng(intersection.mapCtptIntLat, intersection.mapCtptIntLot),
         content: element,
