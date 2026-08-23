@@ -12,6 +12,7 @@ interface ApiBody { totalCount?: number | string; pageNo?: number | string; numO
 export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; }
 export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; basePath?: string; }
 
+const TRAFFIC_API_TIMEOUT_MS = 8000;
 function debugEnabled() { return new URLSearchParams(window.location.search).get("debug") === "1"; }
 function debugLog(message: string, data: Record<string, unknown>) { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); }
 function logDev(message: string, ...args: unknown[]): void { if (import.meta.env.DEV) console.log(`[SignalNow] ${message}`, ...args); }
@@ -28,14 +29,36 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   logDev("서울 교차로 API 요청", path, { pageNo, numOfRows, stdgCd });
   debugLog("tl_drct_info request started", { endpoint: path, pageNo, numOfRows, stdgCd: path === "/tl_drct_info" ? undefined : stdgCd });
 
-  const tryFetch = async (url: string) => fetch(url, { headers: { Accept: "application/json" } });
+  const tryFetch = async (url: string, via: "direct" | "proxy") => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), TRAFFIC_API_TIMEOUT_MS);
+    debugLog("request pending", { endpoint: path, via, timeoutMs: TRAFFIC_API_TIMEOUT_MS });
+    try {
+      const response = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
+      debugLog("response received", { endpoint: path, via, status: response.status, ok: response.ok });
+      return response;
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === "AbortError";
+      debugLog(timedOut ? "FAILURE: request timeout" : "FAILURE: network request", { endpoint: path, via, timeout: timedOut });
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
   let response: Response;
   let via: "direct" | "proxy" = "direct";
-  try { response = await tryFetch(directUrl); } catch { via = "proxy"; response = await tryFetch(proxyUrl.toString()); }
+  try {
+    response = await tryFetch(directUrl, "direct");
+  } catch {
+    via = "proxy";
+    debugLog("proxy fallback start", { endpoint: path });
+    response = await tryFetch(proxyUrl.toString(), "proxy");
+  }
   if (!response.ok) { debugLog("FAILURE: API request", { endpoint: path, status: response.status, ok: response.ok, via }); throw new Error(`Traffic API request failed with status ${response.status}.`); }
 
   let payload: KlidResponseEnvelope;
-  try { payload = await parseJsonResponse(response); } catch (error) { debugLog("FAILURE: response parsing", { endpoint: path, status: response.status, ok: response.ok, via, error: error instanceof Error ? error.message : "unknown" }); throw error; }
+  try { debugLog("parse-start", { endpoint: path, status: response.status, via }); payload = await parseJsonResponse(response); debugLog("parse-complete", { endpoint: path, status: response.status, via }); } catch (error) { debugLog("FAILURE: response parsing", { endpoint: path, status: response.status, ok: response.ok, via, error: error instanceof Error ? error.message : "unknown" }); throw error; }
   const envelope = payload.response ?? payload; const header = envelope.header; const body = envelope.body; const itemCount = toArray(body?.items?.item).length;
   debugLog("tl_drct_info response", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount });
   logDev("서울 교차로 API 응답", path, { resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: body?.totalCount ?? 0, itemCount });
