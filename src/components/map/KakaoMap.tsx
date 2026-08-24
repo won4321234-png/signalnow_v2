@@ -41,6 +41,33 @@ function getViewport(map: kakao.maps.Map): Viewport | null {
   return { south: sw.getLat() - latPad, west: sw.getLng() - lngPad, north: ne.getLat() + latPad, east: ne.getLng() + lngPad };
 }
 
+function ensurePedestrianOverlayState(element: HTMLElement, viewMode: ViewMode): void {
+  const root = element.querySelector<HTMLElement>(".signal-overlay-root");
+  if (!root || viewMode !== "pedestrian") return;
+  if (root.querySelector(".signal-direction")) return;
+
+  root.style.display = "block";
+  root.style.width = "220px";
+  root.style.height = "90px";
+
+  const center = root.querySelector<HTMLElement>(".signal-center");
+  if (center) {
+    center.textContent = "🚶";
+    center.style.width = "42px";
+    center.style.height = "42px";
+    center.style.fontSize = "20px";
+    center.style.background = "var(--card)";
+    center.style.border = "2px solid var(--primary)";
+  }
+
+  if (root.querySelector(".pedestrian-empty-state")) return;
+  const message = document.createElement("div");
+  message.className = "pedestrian-empty-state";
+  message.textContent = "보행 신호 데이터 없음";
+  message.style.cssText = "position:absolute;left:50%;top:calc(50% + 30px);transform:translateX(-50%);white-space:nowrap;padding:5px 9px;border-radius:9999px;background:var(--card);border:1px solid color-mix(in srgb, var(--border) 70%, transparent);box-shadow:0 4px 14px rgba(15,23,42,.18);color:var(--muted-foreground);font-size:10px;font-weight:800;";
+  root.appendChild(message);
+}
+
 export function KakaoMap({ intersections, selectedIntersection, selectedIntersectionId, favoriteIds, viewMode, region, onSelectIntersection, onViewportChange, className }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<kakao.maps.Map | null>(null);
@@ -118,11 +145,12 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
   useEffect(() => {
     const map = mapRef.current;
     if (!mapInstance || !map) return;
-    if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId || selectedIntersection.signals.length === 0) { if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; } return; }
+    if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) { if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; } return; }
     const position = new kakao.maps.LatLng(selectedIntersection.mapCtptIntLat, selectedIntersection.mapCtptIntLot);
     const existing = signalOverlayRef.current;
-    if (existing) { updateIntersectionSignalOverlayElement(existing.element, selectedIntersection, viewMode); existing.overlay.setPosition(position); existing.overlay.setZIndex(15); return; }
+    if (existing) { updateIntersectionSignalOverlayElement(existing.element, selectedIntersection, viewMode); ensurePedestrianOverlayState(existing.element, viewMode); existing.overlay.setPosition(position); existing.overlay.setZIndex(15); return; }
     const element = createIntersectionSignalOverlayElement(selectedIntersection, viewMode);
+    ensurePedestrianOverlayState(element, viewMode);
     const overlay = new kakao.maps.CustomOverlay({ position, content: element, xAnchor: 0.5, yAnchor: 0.5, zIndex: 15 });
     overlay.setMap(map);
     signalOverlayRef.current = { overlay, element };
