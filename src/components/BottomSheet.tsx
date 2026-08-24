@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronDown, Clock, Share2, Star, X, Info, Activity, Bookmark, History } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -29,7 +28,6 @@ export function BottomSheet({ open, intersection, status, signalLoading, viewMod
   const handlePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => onDragStart(e.clientY), [onDragStart]);
   useEffect(() => { if (!isDragging) return; const handleMove = (e: PointerEvent) => onDragMove(e.clientY); const handleUp = (e: PointerEvent) => onDragEnd(e.clientY); window.addEventListener("pointermove", handleMove); window.addEventListener("pointerup", handleUp); window.addEventListener("pointercancel", handleUp); return () => { window.removeEventListener("pointermove", handleMove); window.removeEventListener("pointerup", handleUp); window.removeEventListener("pointercancel", handleUp); }; }, [isDragging, onDragMove, onDragEnd]);
   const currentHeightPx = liveHeightPx ?? snapHeightPx(snap, viewportHRef.current || window.innerHeight);
-  const groupedSignals: Record<ApproachDirection, Intersection["signals"]> = intersection ? intersection.signals.reduce<Record<ApproachDirection, Intersection["signals"]>>((acc, sig) => { (acc[sig.direction] ??= []).push(sig); return acc; }, { North: [], East: [], South: [], West: [], NorthEast: [], SouthEast: [], SouthWest: [], NorthWest: [] }) : { North: [], East: [], South: [], West: [], NorthEast: [], SouthEast: [], SouthWest: [], NorthWest: [] };
   const modeSignals = intersection ? intersection.signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian") : [];
   const groupedModeSignals: Record<ApproachDirection, Intersection["signals"]> = modeSignals.reduce<Record<ApproachDirection, Intersection["signals"]>>((acc, sig) => { (acc[sig.direction] ??= []).push(sig); return acc; }, { North: [], East: [], South: [], West: [], NorthEast: [], SouthEast: [], SouthWest: [], NorthWest: [] });
   const isFav = intersection ? favorites.has(intersection.crsrdId) : false;
