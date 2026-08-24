@@ -27,9 +27,11 @@ const ENDPOINTS = [
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
 ] as const;
-const TIMEOUT_MS = 6500;
+const ENDPOINT_TIMEOUT_MS = 3500;
+const TOTAL_TIMEOUT_MS = 9000;
 const RADIUS_METERS = 70;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE = new Map<string, { expiresAt: number; value: IntersectionRoadGeometry | null }>();
 const PENDING = new Map<string, Promise<IntersectionRoadGeometry | null>>();
 const COMPASS: Array<[string, number]> = [["North", 0], ["NorthEast", 45], ["East", 90], ["SouthEast", 135], ["South", 180], ["SouthWest", 225], ["West", 270], ["NorthWest", 315]];
@@ -42,19 +44,28 @@ function haversine(a: RoadGeometryPoint, b: RoadGeometryPoint): number { const d
 function bearing(a: RoadGeometryPoint, b: RoadGeometryPoint): number { const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat)); const x = Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(toRad(b.lng - a.lng)); return normalizeAngle(toDeg(Math.atan2(y, x))); }
 function axisAngle(angle: number): number { return normalizeAngle(angle >= 180 ? angle - 180 : angle); }
 function circularMean(angles: number[]): number { if (!angles.length) return 0; const sin = angles.reduce((sum, a) => sum + Math.sin(toRad(a)), 0); const cos = angles.reduce((sum, a) => sum + Math.cos(toRad(a)), 0); return normalizeAngle(toDeg(Math.atan2(sin, cos))); }
-function cacheKey(crsrdId: string, lat: number, lng: number): string { return `${crsrdId}:${lat.toFixed(5)}:${lng.toFixed(5)}:osm-v1`; }
+function cacheKey(crsrdId: string, lat: number, lng: number): string { return `${crsrdId}:${lat.toFixed(5)}:${lng.toFixed(5)}:osm-v2`; }
 function escapeOverpassNumber(value: number): string { if (!Number.isFinite(value)) throw new Error("Invalid coordinate."); return value.toFixed(6); }
 
-async function fetchWithTimeout(url: string, query: string): Promise<OverpassResponse> {
+async function fetchWithTimeout(url: string, query: string, deadlineAt: number, externalSignal?: AbortSignal): Promise<OverpassResponse> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const remainingMs = Math.max(1, deadlineAt - Date.now());
+  const timeoutMs = Math.min(ENDPOINT_TIMEOUT_MS, remainingMs);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromCaller = () => controller.abort();
+  externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", Accept: "application/json" }, body: new URLSearchParams({ data: query }).toString(), signal: controller.signal });
     if (!response.ok) throw new Error(`Overpass HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("json")) throw new Error("Invalid Overpass content type.");
     const payload = await response.json() as OverpassResponse;
     if (!payload || !Array.isArray(payload.elements)) throw new Error("Invalid Overpass response.");
     return payload;
-  } finally { window.clearTimeout(timer); }
+  } finally {
+    window.clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
+  }
 }
 
 function candidateWeight(tags: Record<string, string>): number {
@@ -136,19 +147,24 @@ function buildAnalysis(crsrdId: string, center: RoadGeometryPoint, ways: Overpas
   return { crsrdId, axes, approaches, directionMatches, confidence, provider: "osm-overpass" };
 }
 
-async function queryOverpass(lat: number, lng: number): Promise<OverpassWay[]> {
+async function queryOverpass(lat: number, lng: number, externalSignal?: AbortSignal): Promise<OverpassWay[]> {
   const query = `[out:json][timeout:20];way(around:${RADIUS_METERS},${escapeOverpassNumber(lat)},${escapeOverpassNumber(lng)})[highway];out tags geom;`;
+  const deadlineAt = Date.now() + TOTAL_TIMEOUT_MS;
   let lastError: unknown;
   for (const endpoint of ENDPOINTS) {
+    if (externalSignal?.aborted || Date.now() >= deadlineAt) break;
     try {
-      const payload = await fetchWithTimeout(endpoint, query);
+      const payload = await fetchWithTimeout(endpoint, query, deadlineAt, externalSignal);
       return (payload.elements ?? []).filter((item) => item.type === "way").map((item) => ({ id: item.id, tags: item.tags, geometry: item.geometry }));
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      lastError = error;
+      if (externalSignal?.aborted) break;
+    }
   }
   throw lastError instanceof Error ? lastError : new Error("All Overpass endpoints failed.");
 }
 
-export async function getRoadGeometry(crsrdId: string, latitude: number, longitude: number): Promise<IntersectionRoadGeometry | null> {
+export async function getRoadGeometry(crsrdId: string, latitude: number, longitude: number, options?: { signal?: AbortSignal }): Promise<IntersectionRoadGeometry | null> {
   if (!crsrdId || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   const key = cacheKey(crsrdId, latitude, longitude);
   const cached = CACHE.get(key);
@@ -157,12 +173,13 @@ export async function getRoadGeometry(crsrdId: string, latitude: number, longitu
   if (pending) return pending;
   const promise = (async () => {
     try {
-      const ways = await queryOverpass(latitude, longitude);
+      const ways = await queryOverpass(latitude, longitude, options?.signal);
       const result = buildAnalysis(crsrdId, { lat: latitude, lng: longitude }, ways);
       CACHE.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value: result });
       return result;
     } catch {
-      CACHE.set(key, { expiresAt: Date.now() + 5 * 60 * 1000, value: null });
+      if (options?.signal?.aborted) return null;
+      CACHE.set(key, { expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS, value: null });
       return null;
     }
   })();
