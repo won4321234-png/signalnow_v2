@@ -24,13 +24,15 @@ const COMPASS: Array<[string, number]> = [["North", 0], ["NorthEast", 45], ["Eas
 
 function normalizeAngle(value: number): number { return ((value % 360) + 360) % 360; }
 function angularDistance(a: number, b: number): number { const d = Math.abs(normalizeAngle(a) - normalizeAngle(b)); return Math.min(d, 360 - d); }
+function axisDistance(a: number, b: number): number { const aa = normalizeAngle(a) % 180; const bb = normalizeAngle(b) % 180; const d = Math.abs(aa - bb); return Math.min(d, 180 - d); }
 function toRad(value: number): number { return value * Math.PI / 180; }
 function toDeg(value: number): number { return value * 180 / Math.PI; }
 function haversine(a: RoadGeometryPoint, b: RoadGeometryPoint): number { const dLat = toRad(b.lat - a.lat); const dLng = toRad(b.lng - a.lng); const lat1 = toRad(a.lat); const lat2 = toRad(b.lat); const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2; return 6371008.8 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h))); }
 function bearing(a: RoadGeometryPoint, b: RoadGeometryPoint): number { const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat)); const x = Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(toRad(b.lng - a.lng)); return normalizeAngle(toDeg(Math.atan2(y, x))); }
-function axisAngle(angle: number): number { return normalizeAngle(angle >= 180 ? angle - 180 : angle); }
-function circularMean(angles: number[]): number { if (!angles.length) return 0; const sin = angles.reduce((sum, a) => sum + Math.sin(toRad(a)), 0); const cos = angles.reduce((sum, a) => sum + Math.cos(toRad(a)), 0); return normalizeAngle(toDeg(Math.atan2(sin, cos))); }
+function axisAngle(angle: number): number { return normalizeAngle(angle) % 180; }
+function axisCircularMean(angles: number[]): number { if (!angles.length) return 0; const sin = angles.reduce((sum, angle) => sum + Math.sin(toRad(angle * 2)), 0); const cos = angles.reduce((sum, angle) => sum + Math.cos(toRad(angle * 2)), 0); return normalizeAngle(toDeg(Math.atan2(sin, cos)) / 2) % 180; }
 function weightedCircularMean(values: Array<{ angle: number; weight: number }>): number { if (!values.length) return 0; const sin = values.reduce((sum, item) => sum + Math.sin(toRad(item.angle)) * item.weight, 0); const cos = values.reduce((sum, item) => sum + Math.cos(toRad(item.angle)) * item.weight, 0); return normalizeAngle(toDeg(Math.atan2(sin, cos))); }
+function weightedAxisMean(values: Array<{ angle: number; weight: number }>): number { if (!values.length) return 0; const sin = values.reduce((sum, item) => sum + Math.sin(toRad(item.angle * 2)) * item.weight, 0); const cos = values.reduce((sum, item) => sum + Math.cos(toRad(item.angle * 2)) * item.weight, 0); return normalizeAngle(toDeg(Math.atan2(sin, cos)) / 2) % 180; }
 function cacheKey(crsrdId: string, lat: number, lng: number): string { return `${crsrdId}:${lat.toFixed(5)}:${lng.toFixed(5)}:osm-v3`; }
 function escapeOverpassNumber(value: number): string { if (!Number.isFinite(value)) throw new Error("Invalid coordinate."); return value.toFixed(6); }
 
@@ -87,13 +89,13 @@ function clusterAxes(segments: Candidate[]): RoadAxis[] {
   const clusters: Array<{ angles: number[]; weights: number[] }> = [];
   for (const segment of segments) {
     const angle = axisAngle(segment.bearing);
-    let target = clusters.find((cluster) => angularDistance(angle, circularMean(cluster.angles)) <= AXIS_CLUSTER_DEGREES);
+    let target = clusters.find((cluster) => axisDistance(angle, axisCircularMean(cluster.angles)) <= AXIS_CLUSTER_DEGREES);
     if (!target) { target = { angles: [], weights: [] }; clusters.push(target); }
     target.angles.push(angle);
     target.weights.push(segment.weight);
   }
   return clusters.map((cluster) => {
-    const representative = weightedCircularMean(cluster.angles.map((angle, index) => ({ angle, weight: cluster.weights[index] })));
+    const representative = weightedAxisMean(cluster.angles.map((angle, index) => ({ angle, weight: cluster.weights[index] })));
     const confidence = Math.min(1, 0.45 + cluster.angles.length * 0.12);
     return { bearing: representative, reverseBearing: normalizeAngle(representative + 180), segmentCount: cluster.angles.length, confidence };
   }).sort((a, b) => b.segmentCount - a.segmentCount);
@@ -146,7 +148,7 @@ function buildAnalysis(crsrdId: string, center: RoadGeometryPoint, ways: Overpas
   const axes = clusterAxes(candidates);
   const rawApproaches = clusterApproaches(candidates);
   const approaches = rawApproaches.map((approach) => {
-    const axis = axes.reduce((best, item) => angularDistance(axisAngle(approach.bearing), axisAngle(item.bearing)) < angularDistance(axisAngle(approach.bearing), axisAngle(best.bearing)) ? item : best, axes[0]);
+    const axis = axes.reduce((best, item) => axisDistance(approach.bearing, item.bearing) < axisDistance(approach.bearing, best.bearing) ? item : best, axes[0]);
     return { ...approach, axisBearing: axis.bearing };
   });
   const directionMatches = matchDirections(approaches);
@@ -197,10 +199,9 @@ function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T
   if (signal.aborted) return Promise.resolve(undefined as T);
   return new Promise<T>((resolve) => {
     let settled = false;
-    const cleanup = () => signal.removeEventListener("abort", onAbort);
-    const onAbort = () => { if (settled) return; settled = true; cleanup(); resolve(undefined as T); };
+    const onAbort = () => { if (settled) return; settled = true; signal.removeEventListener("abort", onAbort); resolve(undefined as T); };
     signal.addEventListener("abort", onAbort, { once: true });
-    promise.then((value) => { if (settled) return; settled = true; cleanup(); resolve(value); }, () => { if (settled) return; settled = true; cleanup(); resolve(undefined as T); });
+    promise.then((value) => { if (settled) return; settled = true; signal.removeEventListener("abort", onAbort); resolve(value); }, () => { if (settled) return; settled = true; signal.removeEventListener("abort", onAbort); resolve(undefined as T); });
   });
 }
 
