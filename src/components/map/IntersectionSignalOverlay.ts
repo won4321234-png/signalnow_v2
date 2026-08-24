@@ -15,7 +15,6 @@ function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): Tra
   const seen = new Set<string>();
   return modeSignals.filter((signal) => { const key = [signal.direction, signal.movement, signal.state, signal.remainingSeconds ?? "undefined", signal.cycleSeconds].join("|"); if (seen.has(key)) return false; seen.add(key); return true; });
 }
-function arrowFromAngle(angle: number): string { const normalized = normalizeAngle(angle); const index = Math.round(normalized / 45) % 8; return ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"][index]; }
 function approachForDirection(geometry: IntersectionRoadGeometry | null | undefined, direction: ApproachDirection): RoadApproach | undefined {
   if (!geometry || geometry.confidence < GEOMETRY_CONFIDENCE_THRESHOLD) return undefined;
   return geometry.directionMatches[direction];
@@ -41,7 +40,6 @@ function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSigna
   const directionLabel = DIRECTION_LABEL[direction];
   const approach = approachForDirection(geometry, direction);
   const angle = approach?.bearing ?? DIRECTION_ANGLE[direction];
-  const directionArrow = arrowFromAngle(angle);
   const geometryAttribute = approach ? ` data-road-bearing="${approach.bearing.toFixed(2)}" data-road-way="${approach.wayId}"` : "";
   return `<div class="signal-direction" data-signal-direction="${direction}" data-direction-angle="${angle}"${geometryAttribute} aria-label="${directionLabel} 방향" style="--direction-angle:${angle}deg;"><div class="signal-direction-label"><span>${directionLabel}</span><span class="signal-direction-arrow" aria-hidden="true" style="transform:rotate(${angle}deg);">↑</span></div><div class="signal-direction-signals">${signals.map((signal) => buildSignalChip(signal, approach)).join("")}</div></div>`;
 }
