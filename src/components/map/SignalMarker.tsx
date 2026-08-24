@@ -1,8 +1,7 @@
 /**
  * Factory utilities for Kakao Maps CustomOverlay signal markers.
- * Markers are mode-aware: driver mode summarizes vehicle signals and
- * pedestrian mode summarizes pedestrian signals instead of continuing to
- * render the same vehicle marker.
+ * Pedestrian information is surfaced on the map marker itself so the
+ * pedestrian mode is never visually indistinguishable from driver mode.
  */
 
 import type { Intersection, ViewMode } from "@/types/traffic";
@@ -30,30 +29,33 @@ function buildFavoriteBadge(): string {
   return `<span style="position:absolute;top:-4px;right:-4px;z-index:10;width:16px;height:16px;background:var(--color-signal-yellow);border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:8px;color:white;line-height:1;">★</span>`;
 }
 
-function buildLabel(name: string, visible: boolean, pedestrian: boolean, pedestrianCount: number): string {
-  const suffix = pedestrian ? ` · 보행 ${pedestrianCount > 0 ? `${pedestrianCount}개` : "데이터 없음"}` : "";
-  return `<span class="kakao-marker-label" style="position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--card);padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:700;color:var(--foreground);box-shadow:var(--shadow-sm);pointer-events:none;transition:opacity 150ms ease;opacity:${visible ? "1" : "0"};">${name}${suffix}</span>`;
+function buildLabel(name: string, visible: boolean, pedestrianCount: number): string {
+  const pedestrianText = pedestrianCount > 0 ? ` · 🚶 보행 ${pedestrianCount}개` : " · 🚶 보행 신호";
+  return `<span class="kakao-marker-label" style="position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--card);padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:700;color:var(--foreground);box-shadow:var(--shadow-sm);pointer-events:none;transition:opacity 150ms ease;opacity:${visible ? "1" : "0"};">${name}${pedestrianText}</span>`;
 }
 
-function buildInnerHTML(intersection: Intersection, isSelected: boolean, isFavorite: boolean, viewMode: ViewMode): string {
-  const pedestrian = viewMode === "pedestrian";
-  const modeSignals = intersection.signals.filter((signal) => pedestrian ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
+function buildInnerHTML(intersection: Intersection, isSelected: boolean, isFavorite: boolean, viewMode: ViewMode = "driver"): string {
+  const pedestrianSignals = intersection.signals.filter((signal) => signal.movement === "Pedestrian");
+  const modeSignals = viewMode === "pedestrian"
+    ? pedestrianSignals
+    : intersection.signals.filter((signal) => signal.movement !== "Pedestrian");
   const color = dominantColor(modeSignals.map((signal) => phaseColor(signal.state)));
   const scale = isSelected ? "scale(1.25)" : "scale(1)";
+  const pedestrian = viewMode === "pedestrian";
   return `<div style="position:relative;display:flex;flex-direction:column;align-items:center;transform:${scale};transform-origin:bottom center;transition:transform 0.2s ease;">
       ${buildPinSVG(color, isSelected, pedestrian)}
       ${isFavorite ? buildFavoriteBadge() : ""}
     </div>
-    ${buildLabel(intersection.crsrdNm, isSelected, pedestrian, modeSignals.length)}`;
+    ${buildLabel(intersection.crsrdNm, isSelected, pedestrianSignals.length)}`;
 }
 
-export function createMarkerElement(intersection: Intersection, isSelected: boolean, isFavorite: boolean, viewMode: ViewMode): HTMLElement {
+export function createMarkerElement(intersection: Intersection, isSelected: boolean, isFavorite: boolean, viewMode: ViewMode = "driver"): HTMLElement {
   const el = document.createElement("div");
   el.style.cssText = "position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;outline:none;";
   el.innerHTML = buildInnerHTML(intersection, isSelected, isFavorite, viewMode);
   return el;
 }
 
-export function updateMarkerState(element: HTMLElement, isSelected: boolean, isFavorite: boolean, intersection: Intersection, viewMode: ViewMode): void {
+export function updateMarkerState(element: HTMLElement, isSelected: boolean, isFavorite: boolean, intersection: Intersection, viewMode: ViewMode = "driver"): void {
   element.innerHTML = buildInnerHTML(intersection, isSelected, isFavorite, viewMode);
 }
