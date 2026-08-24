@@ -94,7 +94,8 @@ function clusterAxes(segments: Array<RoadSegment & { weight: number }>): RoadAxi
     const angle = axisAngle(segment.bearing);
     let target = clusters.find((cluster) => angularDistance(angle, circularMean(cluster.angles)) <= 12);
     if (!target) { target = { angles: [], weights: [] }; clusters.push(target); }
-    target.angles.push(angle); target.weights.push(segment.weight);
+    target.angles.push(angle);
+    target.weights.push(segment.weight);
   }
   return clusters.map((cluster) => {
     const representative = circularMean(cluster.angles);
@@ -109,11 +110,10 @@ function buildAnalysis(crsrdId: string, center: RoadGeometryPoint, ways: Overpas
     if (!way.id || !way.geometry || way.geometry.length < 2) continue;
     const segment = nearestSegment(center, way);
     if (!segment) continue;
-    const tags = way.tags ?? {};
-    candidates.push({ ...segment, way, weight: candidateWeight(tags) });
+    candidates.push({ ...segment, way, weight: candidateWeight(way.tags ?? {}) });
   }
   if (!candidates.length) return null;
-  const axes = clusterAxes(candidates.map(({ way: _way, ...segment }) => ({ ...segment })));
+  const axes = clusterAxes(candidates);
   const approaches: RoadApproach[] = candidates.map((candidate) => {
     const axis = axes.reduce((best, item) => angularDistance(axisAngle(candidate.bearing), axisAngle(item.bearing)) < angularDistance(axisAngle(candidate.bearing), axisAngle(best.bearing)) ? item : best, axes[0]);
     const distanceScore = Math.max(0, 1 - candidate.distanceMeters / RADIUS_METERS);
@@ -133,7 +133,6 @@ function buildAnalysis(crsrdId: string, center: RoadGeometryPoint, ways: Overpas
   const uniqueWayCount = new Set(matched.map((item) => item.wayId)).size;
   const directionCoverage = Math.min(1, matched.length / Math.max(2, Math.min(8, axes.length * 2)));
   const confidence = Math.min(1, matched.reduce((sum, item) => sum + item.confidence, 0) / Math.max(1, matched.length) * 0.7 + directionCoverage * 0.3 + (uniqueWayCount > 1 ? 0.05 : 0));
-  if (confidence < 0.58 || matched.length < 2) return { crsrdId, axes, approaches, directionMatches, confidence, provider: "osm-overpass" };
   return { crsrdId, axes, approaches, directionMatches, confidence, provider: "osm-overpass" };
 }
 
