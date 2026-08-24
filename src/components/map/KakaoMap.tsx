@@ -7,6 +7,7 @@ import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useCurrentLocation } from "@/hooks/useCurrentLocation";
 import { createMarkerElement, updateMarkerState } from "@/components/map/SignalMarker";
 import { createIntersectionSignalOverlayElement, updateIntersectionSignalOverlayElement } from "@/components/map/IntersectionSignalOverlay";
+import { getRoadGeometry, type IntersectionRoadGeometry } from "@/services/roadGeometryService";
 import { CurrentLocationButton } from "@/components/map/CurrentLocationButton";
 import { MapControls } from "@/components/map/MapControls";
 import { MapCompass } from "@/components/map/MapCompass";
@@ -46,6 +47,8 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
   const mapRef = useRef<kakao.maps.Map | null>(null);
   const overlaysRef = useRef<Map<string, OverlayEntry>>(new Map());
   const signalOverlayRef = useRef<SignalOverlayEntry | null>(null);
+  const signalGeometryRef = useRef<IntersectionRoadGeometry | null>(null);
+  const roadGeometryRequestRef = useRef(0);
   const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const prevSelectedRef = useRef<string | null>(null);
   const onSelectRef = useRef(onSelectIntersection);
@@ -81,6 +84,8 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
       for (const { overlay } of overlaysRef.current.values()) overlay.setMap(null);
       overlaysRef.current.clear();
       if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; }
+      signalGeometryRef.current = null;
+      roadGeometryRequestRef.current += 1;
       if (userMarkerRef.current) { userMarkerRef.current.setMap(null); userMarkerRef.current = null; }
       mapRef.current = null;
       setMapInstance(null);
@@ -118,15 +123,35 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
   useEffect(() => {
     const map = mapRef.current;
     if (!mapInstance || !map) return;
-    if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) { if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; } return; }
+    if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) {
+      signalGeometryRef.current = null;
+      roadGeometryRequestRef.current += 1;
+      if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; }
+      return;
+    }
     const position = new kakao.maps.LatLng(selectedIntersection.mapCtptIntLat, selectedIntersection.mapCtptIntLot);
     const existing = signalOverlayRef.current;
-    if (existing) { updateIntersectionSignalOverlayElement(existing.element, selectedIntersection, viewMode); existing.overlay.setPosition(position); existing.overlay.setZIndex(15); return; }
-    const element = createIntersectionSignalOverlayElement(selectedIntersection, viewMode);
+    if (existing) { updateIntersectionSignalOverlayElement(existing.element, selectedIntersection, viewMode, signalGeometryRef.current); existing.overlay.setPosition(position); existing.overlay.setZIndex(15); return; }
+    const element = createIntersectionSignalOverlayElement(selectedIntersection, viewMode, signalGeometryRef.current);
     const overlay = new kakao.maps.CustomOverlay({ position, content: element, xAnchor: 0.5, yAnchor: 0.5, zIndex: 15 });
     overlay.setMap(map);
     signalOverlayRef.current = { overlay, element };
   }, [mapInstance, selectedIntersection, selectedIntersectionId, viewMode]);
+
+  useEffect(() => {
+    if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) return;
+    const requestId = roadGeometryRequestRef.current + 1;
+    roadGeometryRequestRef.current = requestId;
+    signalGeometryRef.current = null;
+    const { crsrdId, mapCtptIntLat: latitude, mapCtptIntLot: longitude } = selectedIntersection;
+    void getRoadGeometry(crsrdId, latitude, longitude).then((geometry) => {
+      if (roadGeometryRequestRef.current !== requestId || selectedIntersectionId !== crsrdId) return;
+      signalGeometryRef.current = geometry;
+      if (debugEnabled()) console.log("[SignalNow debug] road geometry", { crsrdId, crsrdNm: selectedIntersection.crsrdNm, latitude, longitude, geometry });
+      const entry = signalOverlayRef.current;
+      if (entry) updateIntersectionSignalOverlayElement(entry.element, selectedIntersection, viewMode, geometry);
+    });
+  }, [selectedIntersectionId]);
 
   useEffect(() => {
     const previous = prevSelectedRef.current;
@@ -149,7 +174,7 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
 
   const handleLocate = useCallback(() => getLocation(), [getLocation]);
   if (sdkError) return <div className={cn("flex h-full w-full items-center justify-center bg-muted", className)}><div className="flex flex-col items-center gap-3 px-6 text-center"><WifiOff className="size-10 text-muted-foreground" /><p className="text-sm font-semibold text-foreground">지도를 불러올 수 없습니다</p><p className="text-xs text-muted-foreground">카카오맵 API 키를 확인하거나 네트워크 상태를 점검하세요</p></div></div>;
-  return <div className={cn("relative h-full w-full overflow-hidden", className)}><div ref={containerRef} className="h-full w-full" role="application" aria-label="교차로 지도" />{!sdkLoaded && <div className="absolute inset-0 z-10 flex items-center justify-center bg-map-surface animate-fade-in"><div className="flex flex-col items-center gap-3"><MapPin className="size-10 animate-bounce text-primary" /><p className="text-sm font-medium text-muted-foreground">카카오맵 불러오는 중…</p></div></div>}<MapControls map={mapInstance} /><MapCompass /><CurrentLocationButton onLocate={handleLocate} loading={locationLoading} error={locationError} className="absolute bottom-24 right-4 z-20" /></div>;
+  return <div className={cn("relative h-full w-full overflow-hidden", className)}><div ref={containerRef} className="h-full w-full" role="application" aria-label="교차로 지도" /><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="absolute bottom-1 left-1 z-20 rounded bg-background/80 px-1.5 py-0.5 text-[9px] text-muted-foreground shadow-sm">Road direction data © OpenStreetMap contributors</a>{!sdkLoaded && <div className="absolute inset-0 z-10 flex items-center justify-center bg-map-surface animate-fade-in"><div className="flex flex-col items-center gap-3"><MapPin className="size-10 animate-bounce text-primary" /><p className="text-sm font-medium text-muted-foreground">카카오맵 불러오는 중…</p></div></div>}<MapControls map={mapInstance} /><MapCompass /><CurrentLocationButton onLocate={handleLocate} loading={locationLoading} error={locationError} className="absolute bottom-24 right-4 z-20" /></div>;
 }
 
 export default KakaoMap;
