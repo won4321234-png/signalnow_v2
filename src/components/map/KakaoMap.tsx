@@ -49,6 +49,7 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
   const signalOverlayRef = useRef<SignalOverlayEntry | null>(null);
   const signalGeometryRef = useRef<IntersectionRoadGeometry | null>(null);
   const roadGeometryRequestRef = useRef(0);
+  const roadGeometryAbortRef = useRef<AbortController | null>(null);
   const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const prevSelectedRef = useRef<string | null>(null);
   const onSelectRef = useRef(onSelectIntersection);
@@ -83,6 +84,8 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
       if (viewportTimer) window.clearTimeout(viewportTimer);
       for (const { overlay } of overlaysRef.current.values()) overlay.setMap(null);
       overlaysRef.current.clear();
+      roadGeometryAbortRef.current?.abort();
+      roadGeometryAbortRef.current = null;
       if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; }
       signalGeometryRef.current = null;
       roadGeometryRequestRef.current += 1;
@@ -124,6 +127,8 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
     const map = mapRef.current;
     if (!mapInstance || !map) return;
     if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) {
+      roadGeometryAbortRef.current?.abort();
+      roadGeometryAbortRef.current = null;
       signalGeometryRef.current = null;
       roadGeometryRequestRef.current += 1;
       if (signalOverlayRef.current) { signalOverlayRef.current.overlay.setMap(null); signalOverlayRef.current = null; }
@@ -139,19 +144,32 @@ export function KakaoMap({ intersections, selectedIntersection, selectedIntersec
   }, [mapInstance, selectedIntersection, selectedIntersectionId, viewMode]);
 
   useEffect(() => {
+    roadGeometryAbortRef.current?.abort();
+    roadGeometryAbortRef.current = null;
     if (!selectedIntersection || selectedIntersectionId !== selectedIntersection.crsrdId) return;
+
     const requestId = roadGeometryRequestRef.current + 1;
     roadGeometryRequestRef.current = requestId;
     signalGeometryRef.current = null;
-    const { crsrdId, mapCtptIntLat: latitude, mapCtptIntLot: longitude } = selectedIntersection;
-    void getRoadGeometry(crsrdId, latitude, longitude).then((geometry) => {
-      if (roadGeometryRequestRef.current !== requestId || selectedIntersectionId !== crsrdId) return;
+    const controller = new AbortController();
+    roadGeometryAbortRef.current = controller;
+    const { crsrdId, crsrdNm, mapCtptIntLat: latitude, mapCtptIntLot: longitude } = selectedIntersection;
+
+    void getRoadGeometry(crsrdId, latitude, longitude, { signal: controller.signal }).then((geometry) => {
+      if (controller.signal.aborted || roadGeometryRequestRef.current !== requestId || selectedIntersectionId !== crsrdId) return;
       signalGeometryRef.current = geometry;
-      if (debugEnabled()) console.log("[SignalNow debug] road geometry", { crsrdId, crsrdNm: selectedIntersection.crsrdNm, latitude, longitude, geometry });
+      if (debugEnabled()) console.log("[SignalNow debug] road geometry", { crsrdId, crsrdNm, latitude, longitude, geometry });
       const entry = signalOverlayRef.current;
       if (entry) updateIntersectionSignalOverlayElement(entry.element, selectedIntersection, viewMode, geometry);
+    }).catch(() => {
+      if (controller.signal.aborted || roadGeometryRequestRef.current !== requestId) return;
+      signalGeometryRef.current = null;
+    }).finally(() => {
+      if (roadGeometryAbortRef.current === controller) roadGeometryAbortRef.current = null;
     });
-  }, [selectedIntersectionId]);
+
+    return () => controller.abort();
+  }, [selectedIntersection, selectedIntersectionId, viewMode]);
 
   useEffect(() => {
     const previous = prevSelectedRef.current;
