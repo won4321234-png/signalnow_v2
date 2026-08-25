@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/BottomSheet";
-import { FloatingButton } from "@/components/FloatingButton";
 import { Header } from "@/components/Header";
 import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
@@ -98,9 +97,7 @@ function AppInner() {
     }
   }, []);
 
-  useEffect(() => {
-    configureTrafficRegion(regionId);
-  }, []);
+  useEffect(() => { configureTrafficRegion(regionId); }, []);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -115,10 +112,8 @@ function AppInner() {
       const elapsedSeconds = Math.max(0, Math.floor((now - receivedAt) / 1000));
       const hasExpiredSignal = sourceSignals.some((signal) => signal.remainingSeconds !== undefined && Math.max(0, signal.remainingSeconds - elapsedSeconds) <= 0);
       if (!hasExpiredSignal) return;
-
       const retry = signalRefreshRetryRef.current.get(refreshTargetId);
       if (retry && now < retry.nextRetryAt) return;
-
       signalRefreshInFlightRef.current = true;
       debugLog("signal phase refresh start", { region: regionId, crsrdId: refreshTargetId, reason: "remaining-reached-zero", retryAttempt: retry?.attempt ?? 0 });
       fetchSelectedIntersectionSignals(refreshTargetId, { forceRefresh: true })
@@ -126,7 +121,6 @@ function AppInner() {
           const refreshSucceeded = result.status === "success" && result.signals.length > 0;
           const previousSignals = signalDataRef.current.get(refreshTargetId);
           const previousReceivedAt = signalReceivedAtRef.current.get(refreshTargetId);
-
           if (refreshSucceeded) {
             const refreshedAt = Date.now();
             signalDataRef.current.set(refreshTargetId, result.signals);
@@ -135,19 +129,14 @@ function AppInner() {
             setCountdownNow(refreshedAt);
             setIntersections((prev) => prev.map((intersection) => intersection.crsrdId === refreshTargetId ? { ...intersection, signals: result.signals } : intersection));
           } else {
-            // A failed refresh is not a new signal cycle. Keep the last known phase and
-            // timestamp so an API/network failure can never rewind the countdown.
             if (previousSignals && !signalDataRef.current.has(refreshTargetId)) signalDataRef.current.set(refreshTargetId, previousSignals);
             if (previousReceivedAt && !signalReceivedAtRef.current.has(refreshTargetId)) signalReceivedAtRef.current.set(refreshTargetId, previousReceivedAt);
             const previousAttempt = retry?.attempt ?? 0;
             const delay = SIGNAL_REFRESH_BACKOFF_MS[Math.min(previousAttempt, SIGNAL_REFRESH_BACKOFF_MS.length - 1)];
             signalRefreshRetryRef.current.set(refreshTargetId, { attempt: previousAttempt + 1, nextRetryAt: Date.now() + delay });
-            debugLog("signal phase refresh failed; preserving last known data", { region: regionId, crsrdId: refreshTargetId, status: result.status, reason: result.debug.failureReason, retryInMs: delay, hasPreviousSignals: Boolean(previousSignals), hasPreviousReceivedAt: Boolean(previousReceivedAt) });
           }
-
           setSignalStatus((prev) => ({ ...prev, [refreshTargetId]: result.status }));
           setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: refreshTargetId, matched: result.debug.matched, extractedCount: result.signals.length, finalCount: refreshSucceeded ? result.signals.length : previousSignals?.length ?? 0, state: result.status, reason: refreshSucceeded ? "" : result.debug.failureReason, signalDiagnostics: result.debug.signalDiagnostics, receivedAt: refreshSucceeded ? Date.now() : previousReceivedAt ?? info.receivedAt }));
-          debugLog("signal phase refresh complete", { region: regionId, crsrdId: refreshTargetId, signalCount: refreshSucceeded ? result.signals.length : previousSignals?.length ?? 0, status: result.status, preserved: !refreshSucceeded });
         })
         .catch((error) => {
           const retry = signalRefreshRetryRef.current.get(refreshTargetId);
@@ -168,18 +157,15 @@ function AppInner() {
     }
     const currentSignalStatus = signalStatus[selectedId];
     setDebugInfo((info) => ({ ...info, targetId: selectedId, state: currentSignalStatus ?? "loading", reason: "" }));
-    debugLog("signal fetch start", { region: regionId, crsrdId: selectedId });
     if (currentSignalStatus === "loading" || currentSignalStatus === "success" || currentSignalStatus === "empty") return;
     const requestId = ++signalRequestRef.current;
     const safetyTimeoutId = window.setTimeout(() => {
       if (requestId !== signalRequestRef.current) return;
       setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
       setSignalLoadingId((current) => (current === selectedId ? null : current));
-      setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-load-timeout" }));
     }, 15000);
     setSignalLoadingId(selectedId);
     setSignalStatus((prev) => ({ ...prev, [selectedId]: "loading" }));
-    setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "loading", reason: "" }));
     fetchSelectedIntersectionSignals(selectedId)
       .then((result) => {
         if (requestId !== signalRequestRef.current) return;
@@ -189,18 +175,11 @@ function AppInner() {
         setCountdownNow(receivedAt);
         if (result.status === "success" && result.signals.length > 0) signalRefreshRetryRef.current.delete(selectedId);
         setSignalStatus((prev) => ({ ...prev, [selectedId]: result.status }));
-        setDebugInfo((info) => ({ ...info, apiStatus: result.debug.apiStatus, itemCount: result.debug.itemCount, targetId: selectedId, matched: result.debug.matched, extractedCount: result.signals.length, state: result.status, reason: result.status === "empty" || result.status === "error" ? result.debug.failureReason : "", signalDiagnostics: result.debug.signalDiagnostics, receivedAt }));
-        setIntersections((prev) => {
-          const next = prev.map((intersection) => intersection.crsrdId === selectedId ? { ...intersection, signals: result.signals } : intersection);
-          const finalCount = next.find((intersection) => intersection.crsrdId === selectedId)?.signals.length ?? 0;
-          setDebugInfo((info) => ({ ...info, finalCount }));
-          return next;
-        });
+        setIntersections((prev) => prev.map((intersection) => intersection.crsrdId === selectedId ? { ...intersection, signals: result.signals } : intersection));
       })
       .catch(() => {
         if (requestId !== signalRequestRef.current) return;
         setSignalStatus((prev) => ({ ...prev, [selectedId]: "error" }));
-        setDebugInfo((info) => ({ ...info, targetId: selectedId, state: "error", reason: "signal-fetch-error" }));
       })
       .finally(() => {
         window.clearTimeout(safetyTimeoutId);
@@ -222,7 +201,7 @@ function AppInner() {
 
   const recentIntersections = useMemo(() => recentIds.map((id) => intersections.find((intersection) => intersection.crsrdId === id)).filter((i): i is Intersection => i !== undefined), [recentIds, intersections]);
   const recordRecent = useCallback((id: string) => setRecentIds((prev) => [id, ...prev.filter((r) => r !== id)].slice(0, MAX_RECENT)), []);
-  const handleSelectIntersection = useCallback((intersectionId: string) => { setDebugInfo((info) => ({ ...info, targetId: intersectionId || "-", state: intersectionId ? "loading" : "blocked", reason: intersectionId ? "" : "missing-crsrdId", signalDiagnostics: [], receivedAt: null })); setSelectedId(intersectionId); setSheetOpen(true); recordRecent(intersectionId); }, [recordRecent]);
+  const handleSelectIntersection = useCallback((intersectionId: string) => { setSelectedId(intersectionId); setSheetOpen(true); recordRecent(intersectionId); }, [recordRecent]);
   const handleCloseSheet = useCallback(() => { setSheetOpen(false); setSelectedId(null); }, []);
   const handleToggleFavorite = useCallback((intersectionId: string) => setFavorites((prev) => { const next = new Set(prev); if (next.has(intersectionId)) next.delete(intersectionId); else next.add(intersectionId); return next; }), []);
   const handleClearRecent = useCallback(() => setRecentIds([]), []);
@@ -243,15 +222,14 @@ function AppInner() {
 
   return (
     <div className="h-svh overflow-hidden bg-background">
-      {page === "map" && <div className="relative h-full w-full">
-        <div className={`absolute inset-0 transition-[padding] duration-300 ease-out ${sheetOpen ? "lg:pr-[360px]" : "lg:pr-0"}`}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} /></div>
-        <Header onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
-        <div className="pointer-events-none absolute left-3 top-16 z-20 lg:hidden"><div className="pointer-events-auto w-[calc(100vw-1.5rem)] max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
-        <div className="pointer-events-none absolute left-4 top-16 z-20 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
-        <FloatingButton className={`fixed right-4 z-20 transition-[bottom] duration-300 ease-out ${sheetOpen ? "bottom-[104px] lg:bottom-8" : "bottom-6 lg:bottom-8"}`} onClick={() => {}} />
-        <div className="pointer-events-none absolute bottom-0 left-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
-        {selectedSignalStatus === "error" && <div className="absolute bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div>}
-        {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-50 max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg"><div className="font-semibold">SignalNow Debug</div><div>Region: {region.name}</div><div>API: {debugInfo.apiStatus}</div><div>Items: {debugInfo.itemCount}</div><div>Target: {debugInfo.targetId}</div><div>Match: {debugInfo.matched ? "YES" : "NO"}</div><div>Signals: {debugInfo.extractedCount}</div><div>Final: {debugInfo.finalCount}</div><div>Status: {debugInfo.state}</div>{debugInfo.reason && <div>Reason: {debugInfo.reason}</div>}<div className="mt-1 border-t border-border pt-1 font-semibold">Signal Debug</div>{firstDiagnostic ? <><div>Direction: {firstDiagnostic.direction}</div><div>Movement: {firstDiagnostic.movement}</div><div>Field: {firstDiagnostic.field}</div><div>Raw Remaining: {String(firstDiagnostic.rawRemaining ?? "undefined")}</div><div>Parsed Remaining: {String(firstDiagnostic.parsedRemaining ?? "undefined")}</div><div>Signal Remaining: {String(firstSignal?.remainingSeconds ?? "undefined")}</div><div>Received At: {debugReceivedAt ? new Date(debugReceivedAt).toISOString() : "-"}</div><div>Elapsed: {debugElapsed}</div><div>Base Remaining: {String(firstBase ?? "undefined")}</div><div>Final Display: {String(firstDisplay ?? "undefined")}</div>{typeof firstDiagnostic.parsedRemaining === "number" && firstDiagnostic.parsedRemaining > 300 && <div className="font-semibold text-destructive">⚠ Abnormal Remaining: {firstDiagnostic.parsedRemaining}</div>}</> : <div>No signal diagnostic</div>}{abnormalDiagnostics.length > 0 && <div className="mt-1 border-t border-border pt-1"><div className="font-semibold">Abnormal Signals</div>{abnormalDiagnostics.map((item, index) => <div key={`${item.direction}-${item.movement}-${index}`}>{index + 1}. {item.direction} / {item.movement} / {item.field} / {String(item.rawRemaining ?? "undefined")} / {String(item.parsedRemaining ?? "undefined")}</div>)}</div>}</div>}
+      {page === "map" && <div className="relative h-full w-full [--signal-header-height:3.5rem] [--signal-desktop-sheet-width:min(360px,32vw)]">
+        <div className="absolute inset-0 transition-[padding] duration-300 ease-out lg:pr-[var(--signal-desktop-sheet-width)]"><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} /></div>
+        <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
+        <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
+        <div className="pointer-events-none absolute left-4 top-[4.5rem] z-40 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
+        {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
+        {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-[70] max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg">SignalNow Debug</div>}
         <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} />
       </div>}
       {page === "mypage" && <MyPage onBack={handleBackToMap} onSettingsClick={handleSettingsClick} />}
