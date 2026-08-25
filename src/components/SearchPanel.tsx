@@ -18,7 +18,10 @@ interface SearchPanelProps {
 
 export function SearchPanel({ mode, onModeChange, intersections = [], onSelect, modeOnly = false, region, regions, onRegionChange }: SearchPanelProps) {
   return (
-    <div className={cn("flex flex-col gap-2.5 rounded-2xl border border-border/20 bg-card/80 glass elevation-4 p-2.5", modeOnly && "inline-flex w-auto")}>
+    <div className={cn(
+      "relative top-14 flex flex-col gap-2.5 rounded-2xl border border-border/20 bg-card/80 glass elevation-4 p-2.5",
+      modeOnly ? "inline-flex w-auto" : "w-[calc(100vw-6rem)] max-w-[300px]",
+    )}>
       <div className={cn("inline-flex items-center rounded-xl bg-muted/40 p-1", modeOnly ? "w-auto" : "w-full")}>
         <ModeButton active={mode === "driver"} onClick={() => onModeChange("driver")} icon={Car} label="운전자" />
         <ModeButton active={mode === "pedestrian"} onClick={() => onModeChange("pedestrian")} icon={Footprints} label="보행자" />
@@ -29,12 +32,12 @@ export function SearchPanel({ mode, onModeChange, intersections = [], onSelect, 
   );
 }
 
-function RegionSelect({ region, regions, onRegionChange }: { region: TrafficRegion; regions: TrafficRegion[]; onRegionChange: (regionId: TrafficRegionId) => void }) {
+function RegionSelect({ region, regions, onRegionChange }: { region: TrafficRegion; regions: TrafficRegion[]; onRegionChange: (regionId: string) => void }) {
   return (
     <label className="flex items-center gap-2 rounded-xl bg-muted/40 px-3.5 py-2.5">
       <MapPin className="size-4 shrink-0 text-muted-foreground" />
       <span className="sr-only">지역 선택</span>
-      <select value={region.id} onChange={(event) => onRegionChange(event.target.value as TrafficRegionId)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-foreground outline-none">
+      <select value={region.id} onChange={(event) => onRegionChange(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-foreground outline-none">
         {regions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </label>
@@ -42,12 +45,7 @@ function RegionSelect({ region, regions, onRegionChange }: { region: TrafficRegi
 }
 
 function ModeButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof Car; label: string }) {
-  return (
-    <button type="button" role="radio" aria-checked={active} onClick={onClick} className={cn("flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-250 ease-out", active ? "bg-card text-foreground elevation-1" : "text-muted-foreground hover:text-foreground")}>
-      <Icon className={cn("size-3.5 transition-transform duration-250", active && "scale-110")} />
-      {label}
-    </button>
-  );
+  return <button type="button" role="radio" aria-checked={active} onClick={onClick} className={cn("flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-250 ease-out", active ? "bg-card text-foreground elevation-1" : "text-muted-foreground hover:text-foreground")}><Icon className={cn("size-3.5 transition-transform duration-250", active && "scale-110")} />{label}</button>;
 }
 
 function SearchInput({ intersections, onSelect }: { intersections: Intersection[]; onSelect: (id: string) => void }) {
