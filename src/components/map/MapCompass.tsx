@@ -23,54 +23,16 @@ const POSITION_STYLES: Record<(typeof DIRECTIONS)[number]["position"], CSSProper
 };
 
 export function MapCompass() {
-  return (
-    <div
-      className="pointer-events-none absolute right-3 bottom-[calc(10rem+env(safe-area-inset-bottom))] z-30 flex h-[82px] w-[82px] items-center justify-center rounded-[24px] border border-white/80 bg-white/88 p-1 shadow-[0_10px_32px_rgba(15,23,42,0.20),0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-700/90 dark:bg-slate-950/86 sm:right-5 sm:bottom-[calc(10.5rem+env(safe-area-inset-bottom))] sm:h-[120px] sm:w-[120px] sm:rounded-[34px] lg:bottom-auto lg:top-[106px]"
-      aria-label="지도 방향 나침반"
-      role="img"
-    >
-      <div className="relative h-full w-full overflow-hidden rounded-[20px] sm:rounded-[30px]" aria-hidden="true">
-        <div className="absolute inset-[7px] rounded-full border border-slate-300/65 bg-white/20 sm:inset-[10px] dark:border-slate-600/70 dark:bg-slate-900/20" />
-        <div className="absolute inset-[14px] rounded-full border border-slate-200/75 sm:inset-[20px] dark:border-slate-700/75" />
-        <div className="absolute left-1/2 top-1/2 h-[2px] w-[32px] -translate-x-1/2 -translate-y-1/2 bg-slate-300/60 sm:w-[46px] dark:bg-slate-700/70" />
-        <div className="absolute left-1/2 top-1/2 h-[32px] w-[2px] -translate-x-1/2 -translate-y-1/2 bg-slate-300/60 sm:h-[46px] dark:bg-slate-700/70" />
-
-        {DIRECTIONS.map((direction) => (
-          <div
-            key={direction.key}
-            className="absolute flex min-w-[28px] flex-col items-center justify-center gap-0.5 text-center leading-none sm:min-w-[34px]"
-            style={POSITION_STYLES[direction.position]}
-            aria-label={`${direction.label}쪽`}
-            title={`${direction.label}쪽`}
-          >
-            <span
-              className={direction.primary
-                ? direction.key === "north"
-                  ? "text-[14px] font-black tracking-tight text-primary drop-shadow-[0_1px_2px_rgba(15,23,42,0.18)] sm:text-[20px]"
-                  : "text-[12px] font-extrabold tracking-tight text-slate-900 drop-shadow-[0_1px_2px_rgba(15,23,42,0.14)] dark:text-slate-50 sm:text-[17px]"
-                : "text-[9px] font-bold tracking-tight text-slate-600 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)] dark:text-slate-300 sm:text-[13px]"
-              }
-            >
-              {direction.label}
-            </span>
-            <span
-              className={direction.key === "north"
-                ? "text-[15px] font-bold text-primary sm:text-[21px]"
-                : direction.primary
-                  ? "text-[12px] font-semibold text-slate-600 dark:text-slate-300 sm:text-[17px]"
-                  : "text-[11px] font-medium text-slate-400 dark:text-slate-500 sm:text-[15px]"
-              }
-            >
-              {direction.arrow}
-            </span>
-          </div>
-        ))}
-
-        <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/95 bg-primary shadow-[0_3px_10px_rgba(15,23,42,0.24)] ring-2 ring-primary/20 sm:h-7 sm:w-7 dark:border-slate-900" />
-        <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/95 sm:h-2 sm:w-2" />
-      </div>
+  return <div className="pointer-events-none absolute right-3 bottom-[calc(var(--signal-sheet-height,0px)+8.75rem+env(safe-area-inset-bottom))] z-30 flex h-[82px] w-[82px] items-center justify-center rounded-[24px] border border-white/80 bg-white/88 p-1 shadow-[0_10px_32px_rgba(15,23,42,0.20),0_2px_8px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-700/90 dark:bg-slate-950/86 sm:right-5 sm:h-[120px] sm:w-[120px] sm:rounded-[34px] sm:bottom-[calc(var(--signal-sheet-height,0px)+10.25rem+env(safe-area-inset-bottom))] lg:bottom-auto lg:top-[106px]" aria-label="지도 방향 나침반" role="img">
+    <div className="relative h-full w-full overflow-hidden rounded-[20px] sm:rounded-[30px]" aria-hidden="true">
+      <div className="absolute inset-[7px] rounded-full border border-slate-300/65 bg-white/20 sm:inset-[10px] dark:border-slate-600/70 dark:bg-slate-900/20" />
+      <div className="absolute inset-[14px] rounded-full border border-slate-200/75 sm:inset-[20px] dark:border-slate-700/75" />
+      <div className="absolute left-1/2 top-1/2 h-[2px] w-[32px] -translate-x-1/2 -translate-y-1/2 bg-slate-300/60 sm:w-[46px] dark:bg-slate-700/70" />
+      <div className="absolute left-1/2 top-1/2 h-[32px] w-[2px] -translate-x-1/2 -translate-y-1/2 bg-slate-300/60 sm:h-[46px] sm:w-[2px] dark:bg-slate-700/70" />
+      {DIRECTIONS.map((direction) => <div key={direction.key} className="absolute flex min-w-[28px] flex-col items-center justify-center gap-0.5 text-center leading-none sm:min-w-[34px]" style={POSITION_STYLES[direction.position]} aria-label={`${direction.label}쪽`} title={`${direction.label}쪽`}><span className={direction.primary ? direction.key === "north" ? "text-[14px] font-black tracking-tight text-primary drop-shadow-[0_1px_2px_rgba(15,23,42,0.18)] sm:text-[20px]" : "text-[12px] font-extrabold tracking-tight text-slate-900 drop-shadow-[0_1px_2px_rgba(15,23,42,0.14)] dark:text-slate-50 sm:text-[17px]" : "text-[9px] font-bold tracking-tight text-slate-600 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)] dark:text-slate-300 sm:text-[13px]"}>{direction.label}</span><span className={direction.key === "north" ? "text-[15px] font-bold text-primary sm:text-[21px]" : direction.primary ? "text-[12px] font-semibold text-slate-600 dark:text-slate-300 sm:text-[17px]" : "text-[11px] font-medium text-slate-400 dark:text-slate-500 sm:text-[15px]"}>{direction.arrow}</span></div>)}
+      <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/95 bg-primary shadow-[0_3px_10px_rgba(15,23,42,0.24)] ring-2 ring-primary/20 sm:h-7 sm:w-7 dark:border-slate-900" /><div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/95 sm:h-2 sm:w-2" />
     </div>
-  );
+  </div>;
 }
 
 export default MapCompass;
