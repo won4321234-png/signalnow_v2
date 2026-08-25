@@ -13,8 +13,8 @@ interface FloatingButtonProps {
 export function FloatingButton({
   active = false,
   onClick,
-  className,
   label = "내 위치로 이동",
+  className,
 }: FloatingButtonProps) {
   return (
     <Button
@@ -24,8 +24,9 @@ export function FloatingButton({
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
+      style={{ bottom: "calc(var(--signal-sheet-offset, 0px) + 1.5rem)" }}
       className={cn(
-        "size-11 rounded-full bg-card text-foreground elevation-3 ring-1 ring-border/15 transition-all duration-250 ease-out",
+        "fixed right-4 z-20 size-11 rounded-full bg-card text-foreground elevation-3 ring-1 ring-border/15 transition-[bottom,transform,box-shadow] duration-300 ease-out",
         "hover:scale-105 hover:elevation-4 active:scale-90 sm:size-12",
         active && "ring-2 ring-primary/30 shadow-glow-primary",
         className
