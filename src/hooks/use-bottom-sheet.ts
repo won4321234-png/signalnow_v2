@@ -42,7 +42,6 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
   const [snap, setSnapState] = useState<SheetSnap>(initialSnap);
   const [liveHeightPx, setLiveHeightPx] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
 
   const startRef = useRef<number | null>(null);
   const snapRef = useRef<SheetSnap>(initialSnap);
@@ -52,17 +51,6 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
   useEffect(() => {
     snapRef.current = snap;
   }, [snap]);
-
-  useEffect(() => {
-    const updateViewportHeight = () => setViewportHeight(window.innerHeight);
-    updateViewportHeight();
-    window.addEventListener("resize", updateViewportHeight, { passive: true });
-    window.addEventListener("orientationchange", updateViewportHeight, { passive: true });
-    return () => {
-      window.removeEventListener("resize", updateViewportHeight);
-      window.removeEventListener("orientationchange", updateViewportHeight);
-    };
-  }, []);
 
   useEffect(() => {
     if (!open) return;
