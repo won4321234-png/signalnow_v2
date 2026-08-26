@@ -213,12 +213,11 @@ function AppInner() {
   const panelStatus: DataStatus = status === "loading" ? "loading" : status === "error" ? "error" : "success";
   const selectedSignalStatus = selectedId ? signalStatus[selectedId] : undefined;
   const debug = debugEnabled();
-  const debugReceivedAt = debugInfo.receivedAt;
 
   return (
     <div className="h-svh overflow-hidden bg-background">
       {page === "map" && <div className="relative h-full w-full [--signal-header-height:3.5rem] [--signal-desktop-sheet-width:min(360px,32vw)]">
-        <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} /></div>
+        <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} sheetOpen={sheetOpen} /></div>
         <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
         <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
         <div className="pointer-events-none absolute left-4 top-[4.5rem] z-40 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
