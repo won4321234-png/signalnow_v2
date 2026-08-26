@@ -33,7 +33,7 @@ function axisAngle(angle: number): number { return normalizeAngle(angle) % 180; 
 function axisCircularMean(angles: number[]): number { if (!angles.length) return 0; const sin = angles.reduce((sum, angle) => sum + Math.sin(toRad(angle * 2)), 0); const cos = angles.reduce((sum, angle) => sum + Math.cos(toRad(angle * 2)), 0); return normalizeAngle(toDeg(Math.atan2(sin, cos)) / 2) % 180; }
 function weightedCircularMean(values: Array<{ angle: number; weight: number }>): number { if (!values.length) return 0; const sin = values.reduce((sum, item) => sum + Math.sin(toRad(item.angle)) * item.weight, 0); const cos = values.reduce((sum, item) => sum + Math.cos(toRad(item.angle)) * item.weight, 0); return normalizeAngle(toDeg(Math.atan2(sin, cos))); }
 function weightedAxisMean(values: Array<{ angle: number; weight: number }>): number { if (!values.length) return 0; const sin = values.reduce((sum, item) => sum + Math.sin(toRad(item.angle * 2)) * item.weight, 0); const cos = values.reduce((sum, item) => sum + Math.cos(toRad(item.angle * 2)) * item.weight, 0); return normalizeAngle(toDeg(Math.atan2(sin, cos)) / 2) % 180; }
-function cacheKey(crsrdId: string, lat: number, lng: number): string { return `${crsrdId}:${lat.toFixed(5)}:${lng.toFixed(5)}:osm-v3`; }
+function cacheKey(crsrdId: string, lat: number, lng: number): string { return `${crsrdId}:${lat.toFixed(5)}:${lng.toFixed(5)}:osm-v4`; }
 function escapeOverpassNumber(value: number): string { if (!Number.isFinite(value)) throw new Error("Invalid coordinate."); return value.toFixed(6); }
 
 async function fetchWithTimeout(url: string, query: string, deadlineAt: number): Promise<OverpassResponse> {
@@ -65,18 +65,35 @@ function candidateWeight(tags: Record<string, string>): number {
   return weight;
 }
 
+function localMeters(center: RoadGeometryPoint, point: RoadGeometryPoint): { x: number; y: number } {
+  const earth = 6371008.8;
+  const lat = toRad(center.lat);
+  return {
+    x: toRad(point.lng - center.lng) * earth * Math.cos(lat),
+    y: toRad(point.lat - center.lat) * earth,
+  };
+}
+
 function nearestSegment(center: RoadGeometryPoint, way: OverpassWay): RoadSegment | null {
   const geometry = way.geometry ?? [];
   let best: RoadSegment | null = null;
   for (let i = 0; i < geometry.length - 1; i += 1) {
     const p1 = { lat: geometry[i].lat, lng: geometry[i].lon };
     const p2 = { lat: geometry[i + 1].lat, lng: geometry[i + 1].lon };
+    const a = localMeters(center, p1);
+    const b = localMeters(center, p2);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const lengthMeters = Math.sqrt(lengthSquared);
+    if (lengthMeters < 1) continue;
+    const t = Math.max(0, Math.min(1, -(a.x * dx + a.y * dy) / lengthSquared));
+    const closestX = a.x + t * dx;
+    const closestY = a.y + t * dy;
+    const distanceMeters = Math.hypot(closestX, closestY);
+    if (distanceMeters > RADIUS_METERS) continue;
     const d1 = haversine(center, p1);
     const d2 = haversine(center, p2);
-    const lengthMeters = haversine(p1, p2);
-    if (lengthMeters < 1) continue;
-    const distanceMeters = Math.min(d1, d2);
-    if (distanceMeters > RADIUS_METERS) continue;
     const outwardPoint = d1 >= d2 ? p1 : p2;
     const segmentBearing = bearing(p1, p2);
     const candidate: RoadSegment = { p1, p2, bearing: segmentBearing, reverseBearing: normalizeAngle(segmentBearing + 180), distanceMeters, lengthMeters, outwardBearing: bearing(center, outwardPoint) };
