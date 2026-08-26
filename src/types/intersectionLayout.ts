@@ -18,7 +18,8 @@ export interface LaneGroundTruth {
 
 export interface ApproachGroundTruth {
   direction: ApproachDirection;
-  state?: GroundTruthApproachState;
+  /** Explicit lifecycle state. Never infer missing AUTO data from zero values. */
+  state: GroundTruthApproachState;
   auto?: {
     roadBearing?: number;
     axisBearing?: number;
@@ -80,6 +81,7 @@ export interface ManualIntersectionLayout {
 export interface GroundTruthExport {
   schemaVersion: 1;
   generatedAt: string;
+  exportedAt?: string;
   source?: "SignalNow Ground Truth Editor";
   intersections: ManualIntersectionLayout[];
 }
