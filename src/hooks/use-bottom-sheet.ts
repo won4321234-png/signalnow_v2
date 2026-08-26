@@ -87,14 +87,14 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
 
   const onDragMove = useCallback((clientY: number) => {
     if (startRef.current === null) return;
-    const vh = window.innerHeight;
+    const vh = viewportHeight || window.innerHeight;
     const base = snapHeightPx(snapRef.current, vh);
     const delta = clientY - startRef.current;
     const next = Math.min(vh, Math.max(COLLAPSED_PX - 40, base - delta));
     setLiveHeightPx(next);
     lastClientYRef.current = clientY;
     lastTimeRef.current = Date.now();
-  }, []);
+  }, [viewportHeight]);
 
   const onDragEnd = useCallback((clientY: number) => {
     setIsDragging(false);
@@ -103,7 +103,7 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
       return;
     }
 
-    const vh = window.innerHeight;
+    const vh = viewportHeight || window.innerHeight;
     const delta = clientY - startRef.current;
     startRef.current = null;
 
@@ -136,7 +136,7 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
       setSnapState("collapsed");
     }
     setLiveHeightPx(null);
-  }, []);
+  }, [viewportHeight]);
 
   const setSnap = useCallback((next: SheetSnap) => {
     setSnapState(next);
