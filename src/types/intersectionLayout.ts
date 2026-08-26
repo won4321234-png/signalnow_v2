@@ -18,8 +18,8 @@ export interface LaneGroundTruth {
 
 export interface ApproachGroundTruth {
   direction: ApproachDirection;
-  /** Explicit lifecycle state. Never infer missing AUTO data from zero values. */
-  state: GroundTruthApproachState;
+  /** Active editor always writes this explicitly. Optional only for backward compatibility with older stored layouts. */
+  state?: GroundTruthApproachState;
   auto?: {
     roadBearing?: number;
     axisBearing?: number;
