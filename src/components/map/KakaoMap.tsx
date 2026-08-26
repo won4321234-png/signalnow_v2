@@ -14,11 +14,9 @@ import { cn } from "@/lib/utils";
 
 type Viewport = { south: number; west: number; north: number; east: number };
 const VIEWPORT_PADDING_RATIO = 0.2;
+const SIGNAL_OVERLAY_HIDE_LEVEL = 7;
 const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 
-// Kakao Maps: lower level = zoomed in. The selected signal overlay should be
-// visibly larger when zoomed in, while staying at a normal readable size when
-// zoomed out. Clamp the range so it never becomes absurdly large or tiny.
 function getSignalOverlayZoomScale(map: kakao.maps.Map): number {
   const level = map.getLevel?.() ?? 5;
   const referenceLevel = 5;
@@ -29,7 +27,9 @@ function getSignalOverlayZoomScale(map: kakao.maps.Map): number {
 function applySignalOverlayZoomScale(element: HTMLElement, map: kakao.maps.Map): void {
   const root = element.querySelector<HTMLElement>(".signal-overlay-root");
   if (!root) return;
+  const level = map.getLevel?.() ?? 5;
   root.style.setProperty("--map-zoom-scale", String(getSignalOverlayZoomScale(map)));
+  root.style.visibility = level >= SIGNAL_OVERLAY_HIDE_LEVEL ? "hidden" : "visible";
 }
 
 export interface KakaoMapProps { intersections: Intersection[]; selectedIntersection: Intersection | null; selectedIntersectionId: string | null; favoriteIds: Set<string>; viewMode: ViewMode; region: TrafficRegion; onSelectIntersection: (intersectionId: string) => void; onViewportChange?: (viewport: Viewport) => void; className?: string; sheetOpen?: boolean; }
