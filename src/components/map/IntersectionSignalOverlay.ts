@@ -56,9 +56,23 @@ function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefin
 }
 
 function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): TrafficSignal[] {
-  const modeSignals = signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
+  const modeSignals = signals.filter((signal) => {
+    if (viewMode === "pedestrian") return signal.movement === "Pedestrian";
+    return signal.movement !== "Pedestrian";
+  });
+
+  // Do not render placeholder records produced by an API field that is absent.
+  // A zero-second red record is a common fallback when the source field is
+  // missing, and showing all of those records makes a selected pin look like
+  // it contains fabricated signal data. Keep genuine active/clearance values.
+  const validSignals = modeSignals.filter((signal) => {
+    const seconds = signal.remainingSeconds;
+    if (typeof seconds !== "number" || !Number.isFinite(seconds)) return false;
+    return seconds > 0 || signal.state !== "stop-And-Remain";
+  });
+
   const seen = new Set<string>();
-  return modeSignals.filter((signal) => {
+  return validSignals.filter((signal) => {
     const key = [signal.direction, signal.movement].join("|");
     if (seen.has(key)) return false;
     seen.add(key);
@@ -107,7 +121,7 @@ function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry
   const groupCount = groups.length;
   const radiusScale = groupCount <= 2 ? 0.34 : groupCount === 3 ? 0.37 : 0.40;
   const content = groups.map((group) => buildDirectionGroup(group.direction, group.signals, layoutGeometry, groupCount)).join("");
-  const safeScale = Math.max(1, Math.min(1.45, mapZoomScale));
+  const safeScale = Math.max(0.82, Math.min(2.2, mapZoomScale));
   return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});--map-zoom-scale:${safeScale};">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
 }
 
