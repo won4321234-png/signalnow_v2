@@ -1,11 +1,35 @@
 import type { GroundTruthExport, ManualIntersectionLayout } from "@/types/intersectionLayout";
 
 const STORAGE_KEY = "signalnow-intersection-ground-truth-v1";
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 function isLayout(value: unknown): value is ManualIntersectionLayout {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
-  return item.schemaVersion === 1 && typeof item.intersectionId === "string" && typeof item.intersectionName === "string" && typeof item.coordinate === "object" && Array.isArray(item.approaches);
+  const coordinate = item.coordinate as Record<string, unknown> | undefined;
+  return item.schemaVersion === 1 && typeof item.intersectionId === "string" && typeof item.intersectionName === "string" && Boolean(coordinate) && finite(coordinate?.lat) && finite(coordinate?.lng) && Array.isArray(item.approaches);
+}
+
+function validateLayout(value: unknown, label: string): string[] {
+  if (!isLayout(value)) return [`${label} is not a valid Ground Truth layout.`];
+  const item = value as ManualIntersectionLayout;
+  const errors: string[] = [];
+  if (item.coordinate.lat < -90 || item.coordinate.lat > 90) errors.push(`${label}: invalid latitude.`);
+  if (item.coordinate.lng < -180 || item.coordinate.lng > 180) errors.push(`${label}: invalid longitude.`);
+  if (item.approaches.length === 0) errors.push(`${label}: at least one direction is required.`);
+  item.approaches.forEach((approach, index) => {
+    if (!finite(approach.confidence) || approach.confidence < 0 || approach.confidence > 1) errors.push(`${label}.approaches[${index}]: invalid confidence.`);
+    for (const position of [approach.manual?.signalPosition, approach.final?.signalPosition]) {
+      if (position && (!finite(position.lat) || !finite(position.lng) || position.lat < -90 || position.lat > 90 || position.lng < -180 || position.lng > 180)) errors.push(`${label}.approaches[${index}]: invalid signal coordinates.`);
+    }
+    for (const bearing of [approach.auto?.roadBearing, approach.auto?.axisBearing, approach.manual?.roadBearing, approach.manual?.axisBearing, approach.final?.roadBearing, approach.final?.axisBearing]) {
+      if (bearing !== undefined && !finite(bearing)) errors.push(`${label}.approaches[${index}]: invalid bearing.`);
+    }
+    for (const distance of [approach.auto?.distanceMeters, approach.manual?.distanceMeters, approach.final?.distanceMeters]) {
+      if (distance !== undefined && (!finite(distance) || distance < 0)) errors.push(`${label}.approaches[${index}]: invalid distance.`);
+    }
+  });
+  return errors;
 }
 
 export interface IntersectionLayoutRepository {
@@ -24,7 +48,7 @@ function read(): ManualIntersectionLayout[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isLayout);
+    return parsed.filter((item) => validateLayout(item, "stored layout").length === 0);
   } catch {
     return [];
   }
@@ -38,11 +62,13 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
   list: () => read(),
   get: (intersectionId) => read().find((item) => item.intersectionId === intersectionId) ?? null,
   save: (layout) => {
+    const errors = validateLayout(layout, layout.intersectionId);
+    if (errors.length) throw new Error(errors[0]);
     const layouts = read().filter((item) => item.intersectionId !== layout.intersectionId);
     write([...layouts, layout]);
   },
   remove: (intersectionId) => write(read().filter((item) => item.intersectionId !== intersectionId)),
-  replaceAll: (layouts) => write(layouts.filter(isLayout)),
+  replaceAll: (layouts) => write(layouts.filter((item) => validateLayout(item, item.intersectionId).length === 0)),
   exportAll: () => ({ schemaVersion: 1, generatedAt: new Date().toISOString(), intersections: read() }),
   importAll: (payload) => {
     const errors: string[] = [];
@@ -50,15 +76,14 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
     const root = payload as Record<string, unknown>;
     if (root.schemaVersion !== 1) return { imported: 0, skipped: 0, errors: ["Unsupported schemaVersion. Expected 1."] };
     if (!Array.isArray(root.intersections)) return { imported: 0, skipped: 0, errors: ["intersections must be an array."] };
-    const valid = root.intersections.filter((item, index) => {
-      if (!isLayout(item)) { errors.push(`intersections[${index}] is invalid.`); return false; }
-      const coordinate = item.coordinate;
-      if (!Number.isFinite(coordinate.lat) || !Number.isFinite(coordinate.lng)) { errors.push(`intersections[${index}] has invalid coordinates.`); return false; }
-      return true;
+    const valid: ManualIntersectionLayout[] = [];
+    root.intersections.forEach((item, index) => {
+      const itemErrors = validateLayout(item, `intersections[${index}]`);
+      if (itemErrors.length) errors.push(...itemErrors); else valid.push(item as ManualIntersectionLayout);
     });
     const current = read();
     const byId = new Map(current.map((item) => [item.intersectionId, item]));
-    for (const item of valid) byId.set(item.intersectionId, item);
+    valid.forEach((item) => byId.set(item.intersectionId, item));
     write([...byId.values()]);
     return { imported: valid.length, skipped: root.intersections.length - valid.length, errors };
   },
