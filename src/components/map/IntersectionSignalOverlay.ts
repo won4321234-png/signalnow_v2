@@ -6,6 +6,7 @@ const DIRECTION_LABEL: Record<ApproachDirection, string> = { North: "북", North
 const DIRECTION_ANGLE: Record<ApproachDirection, number> = { North: 0, NorthEast: 45, East: 90, SouthEast: 135, South: 180, SouthWest: 225, West: 270, NorthWest: 315 };
 const STATE_COLOR: Record<SignalPhaseState, string> = { "protected-Movement-Allowed": "var(--color-signal-green)", "protected-clearance": "var(--color-signal-yellow)", "stop-And-Remain": "var(--color-signal-red)" };
 const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = { Straight: "직진", "Left Turn": "좌회전", "Right Turn": "우회전", "U Turn": "유턴", Pedestrian: "보행", Bus: "버스", Bicycle: "자전거" };
+const MOVEMENT_PRIORITY: TrafficSignal["movement"][] = ["Straight", "Left Turn", "Right Turn", "U Turn", "Bus", "Bicycle", "Pedestrian"];
 const GEOMETRY_CONFIDENCE_THRESHOLD = 0.58;
 
 function formatSeconds(value: number | undefined): string { return value === undefined ? "—" : `${Math.floor(Math.max(0, value))}`; }
@@ -18,10 +19,9 @@ function approachForDirection(geometry: IntersectionRoadGeometry | null | undefi
 }
 
 /**
- * Kakao's map is north-up and is intentionally never rotated.  OSM bearing is
- * measured clockwise from north, exactly matching CSS rotate() where 0deg is
- * the upward arrow.  The OSM approach bearing points away from the junction,
- * while the vehicle is waiting to travel toward the junction, so reverse it.
+ * Kakao stays north-up. The road approach is the only source of rotation for
+ * movement arrows; text and cards themselves are always counter-rotated back
+ * to horizontal so the user can read them instantly on a fixed map.
  */
 function movementArrowAngle(approach: RoadApproach | undefined, direction: ApproachDirection, movement: TrafficSignal["movement"]): number {
   const outwardBearing = approach?.bearing ?? DIRECTION_ANGLE[direction];
@@ -33,11 +33,21 @@ function movementArrowAngle(approach: RoadApproach | undefined, direction: Appro
 }
 
 function directionOffset(approach: RoadApproach | undefined): number {
-  // Keep every chip visibly on the corresponding approach lane instead of
-  // collapsing it into the selected pin.  The value is screen-space only;
-  // bearing controls the actual direction around the intersection.
   if (!approach) return 0;
-  return Math.max(-4, Math.min(10, (approach.distanceMeters - 12) * 0.18));
+  return Math.max(-8, Math.min(14, (approach.distanceMeters - 10) * 0.22));
+}
+
+function sortAndDedupeSignals(signals: TrafficSignal[]): TrafficSignal[] {
+  const byMovement = new Map<TrafficSignal["movement"], TrafficSignal>();
+  for (const signal of signals) {
+    const existing = byMovement.get(signal.movement);
+    if (!existing) {
+      byMovement.set(signal.movement, signal);
+      continue;
+    }
+    if (existing.remainingSeconds === undefined && signal.remainingSeconds !== undefined) byMovement.set(signal.movement, signal);
+  }
+  return [...byMovement.values()].sort((a, b) => MOVEMENT_PRIORITY.indexOf(a.movement) - MOVEMENT_PRIORITY.indexOf(b.movement));
 }
 
 function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefined, direction: ApproachDirection): string {
@@ -54,49 +64,55 @@ function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): Tra
   const modeSignals = signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
   const seen = new Set<string>();
   return modeSignals.filter((signal) => {
-    const key = [signal.direction, signal.movement, signal.state, signal.remainingSeconds ?? "undefined", signal.cycleSeconds].join("|");
+    const key = [signal.direction, signal.movement].join("|");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSignal[], geometry: IntersectionRoadGeometry | null | undefined): string {
-  if (signals.length === 0) return "";
+function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSignal[], geometry: IntersectionRoadGeometry | null | undefined, groupCount: number): string {
+  const orderedSignals = sortAndDedupeSignals(signals);
+  if (orderedSignals.length === 0) return "";
   const approach = approachForDirection(geometry, direction);
   const positionAngle = approach?.bearing ?? DIRECTION_ANGLE[direction];
   const offset = directionOffset(approach);
   const geometryAttribute = approach ? ` data-road-bearing="${approach.bearing.toFixed(2)}" data-road-axis="${approach.axisBearing.toFixed(2)}" data-road-way="${approach.wayId}" data-road-distance="${approach.distanceMeters.toFixed(1)}"` : "";
-  const chips = signals.map((signal) => buildSignalChip(signal, approach, direction)).join("");
-  return `<div class="signal-direction" data-signal-direction="${direction}" data-direction-angle="${positionAngle}"${geometryAttribute} style="--direction-angle:${positionAngle}deg;--lane-offset:${offset}px;"><div class="signal-direction-content"><div class="signal-direction-label"><span>${DIRECTION_LABEL[direction]}</span></div><div class="signal-direction-signals">${chips}</div></div></div>`;
+  const chips = orderedSignals.map((signal) => buildSignalChip(signal, approach, direction)).join("");
+  const densityClass = orderedSignals.length >= 3 ? "signal-direction--dense" : orderedSignals.length === 2 ? "signal-direction--double" : "signal-direction--single";
+  return `<div class="signal-direction ${densityClass}" data-signal-direction="${direction}" data-direction-angle="${positionAngle}"${geometryAttribute} style="--direction-angle:${positionAngle}deg;--lane-offset:${offset}px;--group-count:${groupCount};"><div class="signal-lane-guide" aria-hidden="true"></div><div class="signal-direction-content"><div class="signal-direction-label"><span>${DIRECTION_LABEL[direction]}</span></div><div class="signal-direction-signals">${chips}</div></div></div>`;
 }
 
 function buildStyles(): string {
   return `<style>
-.signal-overlay-root{--overlay-size:clamp(250px,34vw,330px);--direction-radius:calc(var(--overlay-size)*.39);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;}
-.signal-direction{position:absolute;left:50%;top:50%;width:48%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * (var(--direction-radius) + var(--lane-offset))));transform-origin:center center;}
-/* Rotate the container to the road, then counter-rotate its contents. This keeps Korean text horizontal while the whole group follows the actual road approach. */
-.signal-direction-content{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transform:rotate(calc(-1 * var(--direction-angle)));transform-origin:center center;}
-.signal-direction-label{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:18px;padding:2px 7px;border-radius:9999px;background:color-mix(in srgb,var(--foreground) 90%,transparent);color:var(--background);font-size:9px;font-weight:850;line-height:1;box-shadow:0 2px 7px rgba(15,23,42,.18);white-space:nowrap;}
+.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.39);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;}
+.signal-direction{position:absolute;left:50%;top:50%;width:50%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * (var(--direction-radius) + var(--lane-offset))));transform-origin:center center;}
+.signal-direction-content{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transform:rotate(calc(-1 * var(--direction-angle)));transform-origin:center center;z-index:2;}
+.signal-lane-guide{position:absolute;left:50%;bottom:50%;width:2px;height:calc(var(--direction-radius) + var(--lane-offset) - 14px);min-height:16px;transform:translateX(-50%);background:linear-gradient(to top,color-mix(in srgb,var(--primary) 18%,transparent),transparent);border-radius:999px;z-index:0;}
+.signal-direction-label{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:18px;padding:2px 7px;border-radius:9999px;background:color-mix(in srgb,var(--foreground) 92%,transparent);color:var(--background);font-size:9px;font-weight:900;line-height:1;box-shadow:0 2px 8px rgba(15,23,42,.18);white-space:nowrap;}
 .signal-direction-signals{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;}
-.signal-chip{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:88px;min-height:40px;padding:5px 9px;border:1px solid color-mix(in srgb,var(--border) 65%,transparent);border-radius:12px;background:color-mix(in srgb,var(--card) 97%,transparent);box-shadow:0 5px 16px rgba(15,23,42,.20);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);white-space:nowrap;box-sizing:border-box;}
-.signal-dot{display:block;width:8px;height:8px;flex:0 0 auto;border-radius:9999px;background:var(--signal-color);box-shadow:0 0 0 3px color-mix(in srgb,var(--signal-color) 16%,transparent);}
-.signal-arrow{display:block;flex:0 0 auto;width:22px;height:22px;text-align:center;font-size:19px;font-weight:900;line-height:22px;color:var(--foreground);}
-.signal-arrow-glyph{display:block;width:22px;height:22px;line-height:22px;transform-origin:50% 50%;}
-.signal-chip-body{display:inline-flex;min-width:34px;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;}
-.signal-movement{display:block;max-width:45px;overflow:hidden;text-overflow:ellipsis;font-size:9px;font-weight:750;line-height:1;color:var(--muted-foreground);}
-.signal-seconds{display:block;min-width:34px;font-size:14px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";color:var(--foreground);}
-.signal-seconds small{margin-left:2px;font-size:8px;font-weight:750;color:var(--muted-foreground);}
-.signal-center{position:absolute;left:50%;top:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:9999px;background:color-mix(in srgb,var(--card) 97%,transparent);border:2px solid var(--foreground);box-shadow:0 2px 8px rgba(15,23,42,.24);transform:translate(-50%,-50%);z-index:2;}
-@media (max-width:640px){.signal-overlay-root{--overlay-size:230px;--direction-radius:calc(var(--overlay-size)*.40)}.signal-direction-label{min-width:28px;height:17px;padding:2px 6px;font-size:8px}.signal-chip{min-width:78px;min-height:36px;gap:5px;padding:4px 7px}.signal-dot{width:7px;height:7px}.signal-arrow{width:19px;height:19px;font-size:17px;line-height:19px}.signal-arrow-glyph{width:19px;height:19px;line-height:19px}.signal-seconds{min-width:30px;font-size:12px}.signal-seconds small{font-size:7px}.signal-movement{max-width:40px;font-size:8px}.signal-center{width:19px;height:19px}}
+.signal-chip{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:94px;min-height:43px;padding:5px 10px;border:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:13px;background:color-mix(in srgb,var(--card) 98%,transparent);box-shadow:0 6px 18px rgba(15,23,42,.20),0 1px 2px rgba(15,23,42,.08);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);white-space:nowrap;box-sizing:border-box;}
+.signal-dot{display:block;width:9px;height:9px;flex:0 0 auto;border-radius:9999px;background:var(--signal-color);box-shadow:0 0 0 3px color-mix(in srgb,var(--signal-color) 15%,transparent);}
+.signal-arrow{display:block;flex:0 0 auto;width:24px;height:24px;text-align:center;font-size:21px;font-weight:900;line-height:24px;color:var(--foreground);}
+.signal-arrow-glyph{display:block;width:24px;height:24px;line-height:24px;transform-origin:50% 50%;}
+.signal-chip-body{display:inline-flex;min-width:39px;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;}
+.signal-movement{display:block;max-width:48px;overflow:hidden;text-overflow:ellipsis;font-size:9px;font-weight:800;line-height:1;color:var(--muted-foreground);}
+.signal-seconds{display:block;min-width:39px;font-size:17px;font-weight:950;line-height:1;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";letter-spacing:-.02em;color:var(--foreground);}
+.signal-seconds small{margin-left:2px;font-size:8px;font-weight:800;color:var(--muted-foreground);}
+.signal-center{position:absolute;left:50%;top:50%;width:27px;height:27px;display:flex;align-items:center;justify-content:center;border-radius:9999px;background:color-mix(in srgb,var(--card) 98%,transparent);border:2px solid var(--foreground);box-shadow:0 3px 10px rgba(15,23,42,.24);transform:translate(-50%,-50%);z-index:4;}
+.signal-center::after{content:"";width:7px;height:7px;border-radius:9999px;background:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 12%,transparent);}
+@media (max-width:640px){.signal-overlay-root{--overlay-size:clamp(255px,70vw,305px);--direction-radius:calc(var(--overlay-size)*.39)}.signal-direction-label{min-width:26px;height:17px;padding:2px 6px;font-size:8px}.signal-chip{min-width:84px;min-height:39px;gap:5px;padding:4px 8px;border-radius:12px}.signal-dot{width:8px;height:8px}.signal-arrow{width:21px;height:21px;font-size:19px;line-height:21px}.signal-arrow-glyph{width:21px;height:21px;line-height:21px}.signal-seconds{min-width:34px;font-size:15px}.signal-seconds small{font-size:7px}.signal-movement{max-width:42px;font-size:8px}.signal-center{width:23px;height:23px}.signal-center::after{width:6px;height:6px}}
 </style>`;
 }
 
 function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null): string {
   const signals = filterSignalsForMode(intersection.signals, viewMode);
   const layoutGeometry = geometry && geometry.confidence >= GEOMETRY_CONFIDENCE_THRESHOLD ? geometry : null;
-  const content = `<div class="signal-center" aria-hidden="true"></div>${DIRECTION_ORDER.map((direction) => buildDirectionGroup(direction, signals.filter((signal) => signal.direction === direction), layoutGeometry)).join("")}`;
-  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};">${content}</div>`;
+  const groups = DIRECTION_ORDER.map((direction) => ({ direction, signals: signals.filter((signal) => signal.direction === direction) })).filter((group) => group.signals.length > 0);
+  const groupCount = groups.length;
+  const radiusScale = groupCount <= 2 ? 0.34 : groupCount === 3 ? 0.37 : 0.40;
+  const content = groups.map((group) => buildDirectionGroup(group.direction, group.signals, layoutGeometry, groupCount)).join("");
+  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
 }
 
 export function createIntersectionSignalOverlayElement(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null): HTMLElement {
