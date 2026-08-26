@@ -213,22 +213,16 @@ function AppInner() {
   const selectedSignalStatus = selectedId ? signalStatus[selectedId] : undefined;
   const debug = debugEnabled();
   const debugReceivedAt = debugInfo.receivedAt;
-  const debugElapsed = debugReceivedAt ? Math.max(0, Math.floor((countdownNow - debugReceivedAt) / 1000)) : 0;
-  const abnormalDiagnostics = debugInfo.signalDiagnostics.filter((item) => typeof item.parsedRemaining === "number" && item.parsedRemaining > 300).slice(0, 5);
-  const firstDiagnostic = debugInfo.signalDiagnostics[0];
-  const firstSignal = firstDiagnostic ? selectedIntersection?.signals.find((signal) => signal.direction === firstDiagnostic.direction && signal.movement === firstDiagnostic.movement) : undefined;
-  const firstBase = firstDiagnostic?.parsedRemaining;
-  const firstDisplay = firstSignal?.remainingSeconds;
 
   return (
     <div className="h-svh overflow-hidden bg-background">
       {page === "map" && <div className="relative h-full w-full [--signal-header-height:3.5rem] [--signal-desktop-sheet-width:min(360px,32vw)]">
-        <div className="absolute inset-0 transition-[padding] duration-300 ease-out lg:pr-[var(--signal-desktop-sheet-width)]"><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} /></div>
+        <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} /></div>
         <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
         <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
         <div className="pointer-events-none absolute left-4 top-[4.5rem] z-40 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
-        {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
+        {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center lg:left-4 lg:right-[var(--signal-desktop-sheet-width)]"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
         {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-[70] max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg">SignalNow Debug</div>}
         <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} />
       </div>}
@@ -239,6 +233,8 @@ function AppInner() {
   );
 }
 
-export default function App() {
+function App() {
   return <AuthProvider><ProtectedRoute><AppInner /></ProtectedRoute></AuthProvider>;
 }
+
+export default App;
