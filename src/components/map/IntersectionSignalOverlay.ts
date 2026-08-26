@@ -27,19 +27,20 @@ function movementArrowAngle(approach: RoadApproach | undefined, direction: Appro
   return travelBearing;
 }
 
+// Keep the visual group close to the selected intersection. Road geometry is
+// used for direction/orientation, not to move the whole overlay away from the
+// Kakao selected-intersection coordinate. This prevents a bad/long OSM
+// approach distance from making the signal window appear at the wrong place.
 function directionOffset(approach: RoadApproach | undefined): number {
   if (!approach) return 0;
-  return Math.max(-8, Math.min(14, (approach.distanceMeters - 10) * 0.22));
+  return Math.max(-4, Math.min(6, (approach.distanceMeters - 10) * 0.08));
 }
 
 function sortAndDedupeSignals(signals: TrafficSignal[]): TrafficSignal[] {
   const byMovement = new Map<TrafficSignal["movement"], TrafficSignal>();
   for (const signal of signals) {
     const existing = byMovement.get(signal.movement);
-    if (!existing) {
-      byMovement.set(signal.movement, signal);
-      continue;
-    }
+    if (!existing) { byMovement.set(signal.movement, signal); continue; }
     if (existing.remainingSeconds === undefined && signal.remainingSeconds !== undefined) byMovement.set(signal.movement, signal);
   }
   return [...byMovement.values()].sort((a, b) => MOVEMENT_PRIORITY.indexOf(a.movement) - MOVEMENT_PRIORITY.indexOf(b.movement));
@@ -56,21 +57,12 @@ function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefin
 }
 
 function filterSignalsForMode(signals: TrafficSignal[], viewMode: ViewMode): TrafficSignal[] {
-  const modeSignals = signals.filter((signal) => {
-    if (viewMode === "pedestrian") return signal.movement === "Pedestrian";
-    return signal.movement !== "Pedestrian";
-  });
-
-  // Do not render placeholder records produced by an API field that is absent.
-  // A zero-second red record is a common fallback when the source field is
-  // missing, and showing all of those records makes a selected pin look like
-  // it contains fabricated signal data. Keep genuine active/clearance values.
+  const modeSignals = signals.filter((signal) => viewMode === "pedestrian" ? signal.movement === "Pedestrian" : signal.movement !== "Pedestrian");
   const validSignals = modeSignals.filter((signal) => {
     const seconds = signal.remainingSeconds;
     if (typeof seconds !== "number" || !Number.isFinite(seconds)) return false;
     return seconds > 0 || signal.state !== "stop-And-Remain";
   });
-
   const seen = new Set<string>();
   return validSignals.filter((signal) => {
     const key = [signal.direction, signal.movement].join("|");
@@ -94,7 +86,7 @@ function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSigna
 
 function buildStyles(): string {
   return `<style>
-.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.39);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;transform:scale(var(--map-zoom-scale,1));transform-origin:center center;transition:transform 120ms ease-out;will-change:transform;}
+.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.36);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;transform:scale(var(--map-zoom-scale,1));transform-origin:center center;transition:transform 120ms ease-out;will-change:transform;}
 .signal-direction{position:absolute;left:50%;top:50%;width:50%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * (var(--direction-radius) + var(--lane-offset))));transform-origin:center center;}
 .signal-direction-content{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transform:rotate(calc(-1 * var(--direction-angle)));transform-origin:center center;z-index:2;}
 .signal-lane-guide{position:absolute;left:50%;bottom:50%;width:2px;height:calc(var(--direction-radius) + var(--lane-offset) - 14px);min-height:16px;transform:translateX(-50%);background:linear-gradient(to top,color-mix(in srgb,var(--primary) 18%,transparent),transparent);border-radius:999px;z-index:0;}
@@ -119,7 +111,7 @@ function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry
   const layoutGeometry = geometry && geometry.confidence >= GEOMETRY_CONFIDENCE_THRESHOLD ? geometry : null;
   const groups = DIRECTION_ORDER.map((direction) => ({ direction, signals: signals.filter((signal) => signal.direction === direction) })).filter((group) => group.signals.length > 0);
   const groupCount = groups.length;
-  const radiusScale = groupCount <= 2 ? 0.34 : groupCount === 3 ? 0.37 : 0.40;
+  const radiusScale = groupCount <= 2 ? 0.32 : groupCount === 3 ? 0.35 : 0.38;
   const content = groups.map((group) => buildDirectionGroup(group.direction, group.signals, layoutGeometry, groupCount)).join("");
   const safeScale = Math.max(0.82, Math.min(2.2, mapZoomScale));
   return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});--map-zoom-scale:${safeScale};">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
