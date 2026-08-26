@@ -27,9 +27,11 @@ function approachForDirection(geometry: IntersectionRoadGeometry | null | undefi
 function movementArrowAngle(approach: RoadApproach | undefined, direction: ApproachDirection, movement: TrafficSignal["movement"]): number {
   const outward = approach?.bearing ?? DIRECTION_ANGLE[direction];
   const travel = normalizeAngle(outward + 180);
-  if (movement === "Left Turn") return normalizeAngle(travel - 90);
-  if (movement === "Right Turn") return normalizeAngle(travel + 90);
-  return travel;
+  const turn = movement === "Left Turn" ? -90 : movement === "Right Turn" ? 90 : 0;
+  // The direction content is counter-rotated to keep labels upright. Rotate the
+  // arrow by the position angle as well so its final screen angle remains the
+  // actual travel direction after that parent transform is applied.
+  return normalizeAngle(travel + turn + outward);
 }
 function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefined): string {
   const color = STATE_COLOR[signal.state];
