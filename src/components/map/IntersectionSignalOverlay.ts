@@ -3,6 +3,10 @@ import type { IntersectionRoadGeometry, RoadApproach } from "@/services/roadGeom
 
 const DIRECTION_ORDER: ApproachDirection[] = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"];
 const DIRECTION_LABEL: Record<ApproachDirection, string> = { North: "북", NorthEast: "북동", East: "동", SouthEast: "남동", South: "남", SouthWest: "남서", West: "서", NorthWest: "북서" };
+// These angles are used ONLY for visual placement around the selected
+// intersection. They must never be replaced by OSM road bearings because an
+// imperfect geometry match can move an entire signal group into the wrong
+// quadrant. OSM bearing is used below only for arrow orientation.
 const DIRECTION_ANGLE: Record<ApproachDirection, number> = { North: 0, NorthEast: 45, East: 90, SouthEast: 135, South: 180, SouthWest: 225, West: 270, NorthWest: 315 };
 const STATE_COLOR: Record<SignalPhaseState, string> = { "protected-Movement-Allowed": "var(--color-signal-green)", "protected-clearance": "var(--color-signal-yellow)", "stop-And-Remain": "var(--color-signal-red)" };
 const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = { Straight: "직진", "Left Turn": "좌회전", "Right Turn": "우회전", "U Turn": "유턴", Pedestrian: "보행", Bus: "버스", Bicycle: "자전거" };
@@ -25,15 +29,6 @@ function movementArrowAngle(approach: RoadApproach | undefined, direction: Appro
   if (movement === "Right Turn") return normalizeAngle(travelBearing + 90);
   if (movement === "U Turn") return normalizeAngle(travelBearing + 180);
   return travelBearing;
-}
-
-// Keep the visual group close to the selected intersection. Road geometry is
-// used for direction/orientation, not to move the whole overlay away from the
-// Kakao selected-intersection coordinate. This prevents a bad/long OSM
-// approach distance from making the signal window appear at the wrong place.
-function directionOffset(approach: RoadApproach | undefined): number {
-  if (!approach) return 0;
-  return Math.max(-4, Math.min(6, (approach.distanceMeters - 10) * 0.08));
 }
 
 function sortAndDedupeSignals(signals: TrafficSignal[]): TrafficSignal[] {
@@ -76,20 +71,22 @@ function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSigna
   const orderedSignals = sortAndDedupeSignals(signals);
   if (orderedSignals.length === 0) return "";
   const approach = approachForDirection(geometry, direction);
-  const positionAngle = approach?.bearing ?? DIRECTION_ANGLE[direction];
-  const offset = directionOffset(approach);
+  // Critical: placement follows the semantic signal direction, not an OSM
+  // bearing. OSM data can be offset/ambiguous at complex intersections and
+  // must not change which quadrant the North/East/South/West card occupies.
+  const positionAngle = DIRECTION_ANGLE[direction];
   const geometryAttribute = approach ? ` data-road-bearing="${approach.bearing.toFixed(2)}" data-road-axis="${approach.axisBearing.toFixed(2)}" data-road-way="${approach.wayId}" data-road-distance="${approach.distanceMeters.toFixed(1)}"` : "";
   const chips = orderedSignals.map((signal) => buildSignalChip(signal, approach, direction)).join("");
   const densityClass = orderedSignals.length >= 3 ? "signal-direction--dense" : orderedSignals.length === 2 ? "signal-direction--double" : "signal-direction--single";
-  return `<div class="signal-direction ${densityClass}" data-signal-direction="${direction}" data-direction-angle="${positionAngle}"${geometryAttribute} style="--direction-angle:${positionAngle}deg;--lane-offset:${offset}px;--group-count:${groupCount};"><div class="signal-lane-guide" aria-hidden="true"></div><div class="signal-direction-content"><div class="signal-direction-label"><span>${DIRECTION_LABEL[direction]}</span></div><div class="signal-direction-signals">${chips}</div></div></div>`;
+  return `<div class="signal-direction ${densityClass}" data-signal-direction="${direction}" data-direction-angle="${positionAngle}"${geometryAttribute} style="--direction-angle:${positionAngle}deg;--group-count:${groupCount};"><div class="signal-lane-guide" aria-hidden="true"></div><div class="signal-direction-content"><div class="signal-direction-label"><span>${DIRECTION_LABEL[direction]}</span></div><div class="signal-direction-signals">${chips}</div></div></div>`;
 }
 
 function buildStyles(): string {
   return `<style>
-.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.36);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;transform:scale(var(--map-zoom-scale,1));transform-origin:center center;transition:transform 120ms ease-out;will-change:transform;}
-.signal-direction{position:absolute;left:50%;top:50%;width:50%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * (var(--direction-radius) + var(--lane-offset))));transform-origin:center center;}
+.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.36);display:block;width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;transform:scale(var(--map-zoom-scale,1));transform-origin:center center;transition:transform 120ms ease-out;will-change:transform;box-sizing:border-box;}
+.signal-direction{position:absolute;left:50%;top:50%;width:50%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * var(--direction-radius)));transform-origin:center center;}
 .signal-direction-content{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transform:rotate(calc(-1 * var(--direction-angle)));transform-origin:center center;z-index:2;}
-.signal-lane-guide{position:absolute;left:50%;bottom:50%;width:2px;height:calc(var(--direction-radius) + var(--lane-offset) - 14px);min-height:16px;transform:translateX(-50%);background:linear-gradient(to top,color-mix(in srgb,var(--primary) 18%,transparent),transparent);border-radius:999px;z-index:0;}
+.signal-lane-guide{position:absolute;left:50%;bottom:50%;width:2px;height:calc(var(--direction-radius) - 14px);min-height:16px;transform:translateX(-50%);background:linear-gradient(to top,color-mix(in srgb,var(--primary) 18%,transparent),transparent);border-radius:999px;z-index:0;}
 .signal-direction-label{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:18px;padding:2px 7px;border-radius:9999px;background:color-mix(in srgb,var(--foreground) 92%,transparent);color:var(--background);font-size:9px;font-weight:900;line-height:1;box-shadow:0 2px 8px rgba(15,23,42,.18);white-space:nowrap;}
 .signal-direction-signals{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;}
 .signal-chip{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:94px;min-height:43px;padding:5px 10px;border:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:13px;background:color-mix(in srgb,var(--card) 98%,transparent);box-shadow:0 6px 18px rgba(15,23,42,.20),0 1px 2px rgba(15,23,42,.08);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);white-space:nowrap;box-sizing:border-box;}
@@ -114,12 +111,12 @@ function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry
   const radiusScale = groupCount <= 2 ? 0.32 : groupCount === 3 ? 0.35 : 0.38;
   const content = groups.map((group) => buildDirectionGroup(group.direction, group.signals, layoutGeometry, groupCount)).join("");
   const safeScale = Math.max(0.82, Math.min(2.2, mapZoomScale));
-  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});--map-zoom-scale:${safeScale};">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
+  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="--direction-radius:calc(var(--overlay-size)*${radiusScale});--map-zoom-scale:${safeScale};">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
 }
 
 export function createIntersectionSignalOverlayElement(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null, mapZoomScale = 1): HTMLElement {
   const element = document.createElement("div");
-  element.style.cssText = "position:relative;pointer-events:none;z-index:15;overflow:visible;";
+  element.style.cssText = "position:relative;display:block;width:max-content;height:max-content;min-width:0;min-height:0;padding:0;margin:0;pointer-events:none;z-index:15;overflow:visible;box-sizing:border-box;";
   element.innerHTML = buildInnerHTML(intersection, viewMode, geometry, mapZoomScale);
   return element;
 }
