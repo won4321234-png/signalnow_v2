@@ -31,7 +31,7 @@ export function validateLayout(value: unknown, label: string): string[] {
       if (directions.has(direction)) errors.push(`${prefix}: duplicate direction.`);
       directions.add(direction);
     }
-    if (!approach.state || !validState.has(approach.state)) errors.push(`${prefix}: invalid state.`);
+    if (approach.state === undefined || !validState.has(approach.state)) errors.push(`${prefix}: invalid state.`);
     if (!validSource.has(approach.source)) errors.push(`${prefix}: invalid source.`);
     if (!finite(approach.confidence) || approach.confidence < 0 || approach.confidence > 1) errors.push(`${prefix}: invalid confidence.`);
     for (const position of [approach.manual?.signalPosition, approach.final?.signalPosition]) {
