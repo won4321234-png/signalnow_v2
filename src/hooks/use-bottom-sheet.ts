@@ -31,6 +31,7 @@ export function snapHeightPx(snap: SheetSnap, viewportHeight: number): number {
 interface UseBottomSheetResult {
   snap: SheetSnap;
   liveHeightPx: number | null;
+  viewportHeight: number;
   isDragging: boolean;
   setSnap: (snap: SheetSnap) => void;
   onDragStart: (clientY: number) => void;
@@ -145,6 +146,7 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
   return {
     snap,
     liveHeightPx,
+    viewportHeight,
     isDragging,
     setSnap,
     onDragStart,
