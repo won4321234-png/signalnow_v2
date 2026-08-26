@@ -1,6 +1,7 @@
 import type { ApproachDirection, Intersection, MovementType } from "@/types/traffic";
 
 export type GroundTruthSource = "auto" | "manual" | "hybrid";
+export type GroundTruthApproachState = "AUTO" | "MANUAL" | "FINAL";
 export type IntersectionVerificationStatus = "UNREVIEWED" | "AUTO_READY" | "REVIEW_REQUIRED" | "MANUAL_ONLY" | "VERIFIED";
 export type IntersectionType = "FOUR_WAY" | "T_JUNCTION" | "Y_JUNCTION" | "ROUNDABOUT" | "OFFSET_INTERSECTION" | "COMPLEX" | "OTHER";
 export type CorrectionReason = "ROAD_AXIS_WRONG" | "OSM_GEOMETRY_WRONG" | "LANE_OFFSET_WRONG" | "INTERSECTION_CENTER_WRONG" | "DIRECTION_MAPPING_WRONG" | "SIGNAL_POSITION_WRONG" | "OTHER";
@@ -17,11 +18,14 @@ export interface LaneGroundTruth {
 
 export interface ApproachGroundTruth {
   direction: ApproachDirection;
+  state?: GroundTruthApproachState;
   auto?: {
     roadBearing?: number;
     axisBearing?: number;
     distanceMeters?: number;
     confidence: number;
+    wayId?: string | number;
+    source?: string;
   };
   manual?: {
     roadBearing?: number;
@@ -33,6 +37,7 @@ export interface ApproachGroundTruth {
     lanes: LaneGroundTruth[];
     correctionReason?: CorrectionReason;
     notes?: string;
+    correctedAt?: string;
   };
   final?: {
     roadBearing?: number;
@@ -41,6 +46,7 @@ export interface ApproachGroundTruth {
     offsetMeters?: { longitudinal: number; lateral: number };
     labelRotation?: number;
     signalPosition?: { lat: number; lng: number };
+    source: GroundTruthSource;
   };
   source: GroundTruthSource;
   confidence: number;
