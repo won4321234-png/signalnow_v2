@@ -42,6 +42,9 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
   const [snap, setSnapState] = useState<SheetSnap>(initialSnap);
   const [liveHeightPx, setLiveHeightPx] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerHeight,
+  );
 
   const startRef = useRef<number | null>(null);
   const snapRef = useRef<SheetSnap>(initialSnap);
@@ -57,6 +60,22 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
     setSnapState(initialSnap);
     setLiveHeightPx(null);
   }, [open, initialSnap]);
+
+  useEffect(() => {
+    const syncViewportHeight = () => {
+      setViewportHeight(window.innerHeight);
+      if (!startRef.current) setLiveHeightPx(null);
+    };
+
+    syncViewportHeight();
+    window.addEventListener("resize", syncViewportHeight);
+    window.addEventListener("orientationchange", syncViewportHeight);
+
+    return () => {
+      window.removeEventListener("resize", syncViewportHeight);
+      window.removeEventListener("orientationchange", syncViewportHeight);
+    };
+  }, []);
 
   const onDragStart = useCallback((clientY: number) => {
     startRef.current = clientY;
