@@ -4,12 +4,12 @@ import { createRoot } from "react-dom/client"
 import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
-import { IntersectionEditorPage } from "@/pages/IntersectionEditorPage"
+import { IntersectionGroundTruthEditor } from "@/pages/IntersectionGroundTruthEditor"
 
 function Root() {
   const path = window.location.pathname
   return path === "/admin/intersections" || path === "/intersection-editor"
-    ? <IntersectionEditorPage />
+    ? <IntersectionGroundTruthEditor />
     : <App />
 }
 
