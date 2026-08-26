@@ -35,9 +35,12 @@ export interface ApproachGroundTruth {
     labelRotation?: number;
     signalPosition?: { lat: number; lng: number };
     lanes: LaneGroundTruth[];
+    laneCount?: number;
+    movements?: Array<"LEFT" | "STRAIGHT" | "RIGHT" | "UTURN">;
     correctionReason?: CorrectionReason;
     notes?: string;
     correctedAt?: string;
+    correctedBy?: string;
   };
   final?: {
     roadBearing?: number;
@@ -69,12 +72,15 @@ export interface ManualIntersectionLayout {
     verifiedAt?: string;
     verifiedBy?: string;
     notes?: string;
+    correctionCount?: number;
+    lastCorrectionReason?: CorrectionReason;
   };
 }
 
 export interface GroundTruthExport {
   schemaVersion: 1;
   generatedAt: string;
+  source?: "SignalNow Ground Truth Editor";
   intersections: ManualIntersectionLayout[];
 }
 
@@ -87,7 +93,7 @@ export function createInitialLayout(intersection: Intersection): ManualIntersect
     coordinate: { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot },
     approaches: [],
     status: "UNREVIEWED",
-    metadata: { createdAt: now, updatedAt: now },
+    metadata: { createdAt: now, updatedAt: now, correctionCount: 0 },
   };
 }
 
