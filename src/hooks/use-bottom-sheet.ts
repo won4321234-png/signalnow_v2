@@ -64,7 +64,7 @@ export function useBottomSheet({ open, initialSnap = "partial" }: UseBottomSheet
   useEffect(() => {
     const syncViewportHeight = () => {
       setViewportHeight(window.innerHeight);
-      if (!startRef.current) setLiveHeightPx(null);
+      if (startRef.current === null) setLiveHeightPx(null);
     };
 
     syncViewportHeight();
