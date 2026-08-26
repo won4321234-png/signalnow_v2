@@ -81,8 +81,7 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
   replaceAll: (layouts) => {
     const errors = layouts.flatMap((item) => validateLayout(item, item.intersectionId));
     if (errors.length) throw new Error(errors[0]);
-    const ids = new Set<string>();
-    for (const item of layouts) { if (ids.has(item.intersectionId)) throw new Error(`Duplicate intersection ID: ${item.intersectionId}`); ids.add(item.intersectionId); }
+    const ids = new Set<string>(); for (const item of layouts) { if (ids.has(item.intersectionId)) throw new Error(`Duplicate intersection ID: ${item.intersectionId}`); ids.add(item.intersectionId); }
     write(layouts);
   },
   exportAll: () => ({ schemaVersion: 1, generatedAt: new Date().toISOString(), exportedAt: new Date().toISOString(), source: "SignalNow Ground Truth Editor", intersections: read() }),
