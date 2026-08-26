@@ -18,11 +18,6 @@ function approachForDirection(geometry: IntersectionRoadGeometry | null | undefi
   return approach && approach.confidence >= 0.45 ? approach : undefined;
 }
 
-/**
- * Kakao stays north-up. The road approach is the only source of rotation for
- * movement arrows; text and cards themselves are always counter-rotated back
- * to horizontal so the user can read them instantly on a fixed map.
- */
 function movementArrowAngle(approach: RoadApproach | undefined, direction: ApproachDirection, movement: TrafficSignal["movement"]): number {
   const outwardBearing = approach?.bearing ?? DIRECTION_ANGLE[direction];
   const travelBearing = normalizeAngle(outwardBearing + 180);
@@ -85,7 +80,7 @@ function buildDirectionGroup(direction: ApproachDirection, signals: TrafficSigna
 
 function buildStyles(): string {
   return `<style>
-.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.39);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;}
+.signal-overlay-root{--overlay-size:clamp(285px,42vw,370px);--direction-radius:calc(var(--overlay-size)*.39);width:var(--overlay-size);height:var(--overlay-size);position:relative;pointer-events:none;overflow:visible;isolation:isolate;transform:scale(var(--map-zoom-scale,1));transform-origin:center center;transition:transform 120ms ease-out;will-change:transform;}
 .signal-direction{position:absolute;left:50%;top:50%;width:50%;display:flex;align-items:center;justify-content:center;transform:translate(-50%,-50%) rotate(var(--direction-angle)) translateY(calc(-1 * (var(--direction-radius) + var(--lane-offset))));transform-origin:center center;}
 .signal-direction-content{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transform:rotate(calc(-1 * var(--direction-angle)));transform-origin:center center;z-index:2;}
 .signal-lane-guide{position:absolute;left:50%;bottom:50%;width:2px;height:calc(var(--direction-radius) + var(--lane-offset) - 14px);min-height:16px;transform:translateX(-50%);background:linear-gradient(to top,color-mix(in srgb,var(--primary) 18%,transparent),transparent);border-radius:999px;z-index:0;}
@@ -101,27 +96,28 @@ function buildStyles(): string {
 .signal-seconds small{margin-left:2px;font-size:8px;font-weight:800;color:var(--muted-foreground);}
 .signal-center{position:absolute;left:50%;top:50%;width:27px;height:27px;display:flex;align-items:center;justify-content:center;border-radius:9999px;background:color-mix(in srgb,var(--card) 98%,transparent);border:2px solid var(--foreground);box-shadow:0 3px 10px rgba(15,23,42,.24);transform:translate(-50%,-50%);z-index:4;}
 .signal-center::after{content:"";width:7px;height:7px;border-radius:9999px;background:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 12%,transparent);}
-@media (max-width:640px){.signal-overlay-root{--overlay-size:clamp(255px,70vw,305px);--direction-radius:calc(var(--overlay-size)*.39)}.signal-direction-label{min-width:26px;height:17px;padding:2px 6px;font-size:8px}.signal-chip{min-width:84px;min-height:39px;gap:5px;padding:4px 8px;border-radius:12px}.signal-dot{width:8px;height:8px}.signal-arrow{width:21px;height:21px;font-size:19px;line-height:21px}.signal-arrow-glyph{width:21px;height:21px;line-height:21px}.signal-seconds{min-width:34px;font-size:15px}.signal-seconds small{font-size:7px}.signal-movement{max-width:42px;font-size:8px}.signal-center{width:23px;height:23px}.signal-center::after{width:6px;height:6px}}
+@media (max-width:640px){.signal-overlay-root{--overlay-size:clamp(255px,70vw,305px)}.signal-direction-label{min-width:26px;height:17px;padding:2px 6px;font-size:8px}.signal-chip{min-width:84px;min-height:39px;gap:5px;padding:4px 8px;border-radius:12px}.signal-dot{width:8px;height:8px}.signal-arrow{width:21px;height:21px;font-size:19px;line-height:21px}.signal-arrow-glyph{width:21px;height:21px;line-height:21px}.signal-seconds{min-width:34px;font-size:15px}.signal-seconds small{font-size:7px}.signal-movement{max-width:42px;font-size:8px}.signal-center{width:23px;height:23px}.signal-center::after{width:6px;height:6px}}
 </style>`;
 }
 
-function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null): string {
+function buildInnerHTML(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null, mapZoomScale = 1): string {
   const signals = filterSignalsForMode(intersection.signals, viewMode);
   const layoutGeometry = geometry && geometry.confidence >= GEOMETRY_CONFIDENCE_THRESHOLD ? geometry : null;
   const groups = DIRECTION_ORDER.map((direction) => ({ direction, signals: signals.filter((signal) => signal.direction === direction) })).filter((group) => group.signals.length > 0);
   const groupCount = groups.length;
   const radiusScale = groupCount <= 2 ? 0.34 : groupCount === 3 ? 0.37 : 0.40;
   const content = groups.map((group) => buildDirectionGroup(group.direction, group.signals, layoutGeometry, groupCount)).join("");
-  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
+  const safeScale = Math.max(1, Math.min(1.45, mapZoomScale));
+  return `${buildStyles()}<div class="signal-overlay-root" aria-label="선택한 교차로 ${viewMode === "pedestrian" ? "보행자" : "운전자"} 신호" style="display:${signals.length > 0 ? "block" : "none"};--direction-radius:calc(var(--overlay-size)*${radiusScale});--map-zoom-scale:${safeScale};">${content}<div class="signal-center" aria-hidden="true"></div></div>`;
 }
 
-export function createIntersectionSignalOverlayElement(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null): HTMLElement {
+export function createIntersectionSignalOverlayElement(intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null, mapZoomScale = 1): HTMLElement {
   const element = document.createElement("div");
   element.style.cssText = "position:relative;pointer-events:none;z-index:15;overflow:visible;";
-  element.innerHTML = buildInnerHTML(intersection, viewMode, geometry);
+  element.innerHTML = buildInnerHTML(intersection, viewMode, geometry, mapZoomScale);
   return element;
 }
 
-export function updateIntersectionSignalOverlayElement(element: HTMLElement, intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null): void {
-  element.innerHTML = buildInnerHTML(intersection, viewMode, geometry);
+export function updateIntersectionSignalOverlayElement(element: HTMLElement, intersection: Intersection, viewMode: ViewMode, geometry?: IntersectionRoadGeometry | null, mapZoomScale = 1): void {
+  element.innerHTML = buildInnerHTML(intersection, viewMode, geometry, mapZoomScale);
 }
