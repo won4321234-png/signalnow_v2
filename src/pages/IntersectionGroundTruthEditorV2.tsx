@@ -66,8 +66,8 @@ function makeFreshLayout(intersection: Intersection, signals: TrafficSignal[]): 
   return layout;
 }
 function markerPosition(layout: ManualIntersectionLayout, approach: ApproachGroundTruth) {
-  if (approach.manual?.signalPosition) return approach.manual.signalPosition;
   if (approach.final?.signalPosition) return approach.final.signalPosition;
+  if (approach.manual?.signalPosition) return approach.manual.signalPosition;
   if (approach.auto?.roadBearing !== undefined && approach.auto?.distanceMeters !== undefined) return offsetCoordinate(layout.coordinate.lat, layout.coordinate.lng, approach.auto.roadBearing, approach.auto.distanceMeters);
   return null;
 }
@@ -113,7 +113,7 @@ export function IntersectionGroundTruthEditorV2() {
       const stored = intersectionLayoutRepository.get(intersection.crsrdId);
       const base = stored ? cleanLegacyLayout(stored) : makeFreshLayout(intersection, nextSignals);
       const signalDirections = directionsFromSignals(nextSignals);
-      const filteredApproaches = base.approaches.filter((a) => signalDirections.has(a.direction) || hasAuto(a) || hasManual(a) || hasFinal(a));
+      const filteredApproaches = base.approaches.filter((a) => signalDirections.has(a.direction) || hasManual(a) || hasFinal(a));
       const next = { ...base, approaches: filteredApproaches };
       if (!next.approaches.length) next.status = "UNREVIEWED";
       setLayout(next); setHistory([]); setFuture([]); setSaved(Boolean(stored && JSON.stringify(stored) === JSON.stringify(next))); setStatusMessage(nextSignals.length ? `KLID ${signalDirections.size}개 방향 확인` : "KLID signal 없음 · 실제 데이터가 있을 때만 수동 생성 가능");
@@ -129,16 +129,19 @@ export function IntersectionGroundTruthEditorV2() {
       if (request !== requestRef.current) return;
       setGeometry(result); if (!result) { setStatusMessage("OSM 분석 결과 없음 · AUTO는 생성되지 않았습니다."); setAnalysisLoading(false); return; }
       const next = structuredClone(layout); const now = new Date().toISOString();
+      const signalDirections = directionsFromSignals(signals);
       for (const [direction, match] of Object.entries(result.directionMatches)) {
         if (!match) continue;
-        const typedDirection = direction as ApproachDirection; let target = next.approaches.find((a) => a.direction === typedDirection);
-        if (!target) { target = { direction: typedDirection, source: "auto", confidence: 0, verified: false, updatedAt: now }; next.approaches.push(target); }
+        const typedDirection = direction as ApproachDirection;
+        if (!signalDirections.has(typedDirection)) continue;
+        const target = next.approaches.find((a) => a.direction === typedDirection);
+        if (!target) continue;
         target.auto = { roadBearing: match.bearing, axisBearing: match.axisBearing, distanceMeters: match.distanceMeters, confidence: match.confidence, wayId: match.wayId, source: "OSM" };
         if (!hasManual(target) && !hasFinal(target)) { target.state = "AUTO"; target.source = "auto"; target.confidence = match.confidence; target.verified = false; target.updatedAt = now; }
       }
       next.status = next.approaches.some(hasManual) ? "REVIEW_REQUIRED" : Object.keys(result.directionMatches).length ? "AUTO_READY" : "UNREVIEWED"; next.metadata.updatedAt = now; commitEdit(next, selectedDirection); setAnalysisLoading(false); setStatusMessage(`OSM 분석 완료 · ${Object.keys(result.directionMatches).length}/8 방향 매칭`);
     } catch (e) { if (request === requestRef.current) { setAnalysisLoading(false); setStatusMessage(e instanceof Error ? `OSM 분석 실패 · ${e.message}` : "OSM 분석 실패"); } }
-  }, [commitEdit, layout, selectedDirection, selectedIntersection]);
+  }, [commitEdit, layout, selectedDirection, selectedIntersection, signals]);
 
   useEffect(() => { if (!loaded || !mapContainerRef.current || mapRef.current) return; mapRef.current = new kakao.maps.Map(mapContainerRef.current, { center: new kakao.maps.LatLng(region.center.lat, region.center.lng), level: 5 }); return () => { markerRefs.current.forEach((m) => m.setMap(null)); lineRefs.current.forEach((l) => l.setMap(null)); centerRef.current?.setMap(null); mapRef.current = null; }; }, [loaded, region.center.lat, region.center.lng]);
   useEffect(() => {
