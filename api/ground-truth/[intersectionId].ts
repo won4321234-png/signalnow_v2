@@ -1,4 +1,4 @@
-import { supabase } from "../_lib/supabase";
+import { supabase } from "../_lib/supabase.js";
 
 type Request = { method?: string; query: Record<string, unknown>; body?: unknown };
 type Response = { status: (code: number) => Response; setHeader: (name: string, value: string) => Response; json: (body: unknown) => void };
