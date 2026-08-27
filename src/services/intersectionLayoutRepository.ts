@@ -25,12 +25,8 @@ export function validateLayout(value: unknown, label: string): string[] {
   item.approaches.forEach((approach, index) => {
     const prefix = `${label}.approaches[${index}]`;
     const direction = approach.direction;
-    if (!direction || !validDirection.has(direction)) {
-      errors.push(`${prefix}: invalid direction.`);
-    } else {
-      if (directions.has(direction)) errors.push(`${prefix}: duplicate direction.`);
-      directions.add(direction);
-    }
+    if (!direction || !validDirection.has(direction)) errors.push(`${prefix}: invalid direction.`);
+    else { if (directions.has(direction)) errors.push(`${prefix}: duplicate direction.`); directions.add(direction); }
     if (approach.state === undefined || !validState.has(approach.state)) errors.push(`${prefix}: invalid state.`);
     if (!validSource.has(approach.source)) errors.push(`${prefix}: invalid source.`);
     if (!finite(approach.confidence) || approach.confidence < 0 || approach.confidence > 1) errors.push(`${prefix}: invalid confidence.`);
@@ -68,6 +64,17 @@ function read(): ManualIntersectionLayout[] {
   } catch { return []; }
 }
 function write(layouts: ManualIntersectionLayout[]): void { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts)); }
+function persistShared(layout: ManualIntersectionLayout): void {
+  void fetch(`/api/ground-truth/${encodeURIComponent(layout.intersectionId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(layout),
+    cache: "no-store",
+  }).catch((error) => console.error("[SignalNow] shared Ground Truth save failed", error));
+}
+function removeShared(intersectionId: string): void {
+  void fetch(`/api/ground-truth/${encodeURIComponent(intersectionId)}`, { method: "DELETE", cache: "no-store" }).catch((error) => console.error("[SignalNow] shared Ground Truth delete failed", error));
+}
 
 export const intersectionLayoutRepository: IntersectionLayoutRepository = {
   list: () => read(),
@@ -76,13 +83,14 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
     const errors = validateLayout(layout, layout.intersectionId);
     if (errors.length) throw new Error(errors[0]);
     write([...read().filter((item) => item.intersectionId !== layout.intersectionId), layout]);
+    persistShared(layout);
   },
-  remove: (intersectionId) => write(read().filter((item) => item.intersectionId !== intersectionId)),
+  remove: (intersectionId) => { write(read().filter((item) => item.intersectionId !== intersectionId)); removeShared(intersectionId); },
   replaceAll: (layouts) => {
     const errors = layouts.flatMap((item) => validateLayout(item, item.intersectionId));
     if (errors.length) throw new Error(errors[0]);
     const ids = new Set<string>(); for (const item of layouts) { if (ids.has(item.intersectionId)) throw new Error(`Duplicate intersection ID: ${item.intersectionId}`); ids.add(item.intersectionId); }
-    write(layouts);
+    write(layouts); layouts.forEach(persistShared);
   },
   exportAll: () => ({ schemaVersion: 1, generatedAt: new Date().toISOString(), exportedAt: new Date().toISOString(), source: "SignalNow Ground Truth Editor", intersections: read() }),
   importAll: (payload) => {
@@ -98,7 +106,7 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
       if (!itemErrors.length && id) { ids.add(id); valid.push(item as ManualIntersectionLayout); } else errors.push(...itemErrors);
     });
     if (errors.length) return { imported: 0, skipped: root.intersections.length - valid.length, errors };
-    const byId = new Map(read().map((item) => [item.intersectionId, item])); valid.forEach((item) => byId.set(item.intersectionId, item)); write([...byId.values()]);
+    const byId = new Map(read().map((item) => [item.intersectionId, item])); valid.forEach((item) => byId.set(item.intersectionId, item)); write([...byId.values()]); valid.forEach(persistShared);
     return { imported: valid.length, skipped: 0, errors: [] };
   },
 };
