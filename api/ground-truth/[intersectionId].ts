@@ -1,25 +1,67 @@
-import { put, list, del } from "@vercel/blob";
+import { supabase } from "../_lib/supabase";
 
 type Request = { method?: string; query: Record<string, unknown>; body?: unknown };
 type Response = { status: (code: number) => Response; setHeader: (name: string, value: string) => Response; json: (body: unknown) => void };
 
-const PREFIX = "ground-truth/";
-function blobPath(intersectionId: string): string { return `${PREFIX}${encodeURIComponent(intersectionId)}.json`; }
-function jsonResponse(res: Response, status: number, body: unknown): void { res.status(status).setHeader("Cache-Control", "no-store, max-age=0").json(body); }
+type Layout = {
+  schemaVersion: number;
+  intersectionId: string;
+  intersectionName: string;
+  coordinate: { lat: number; lng: number };
+  approaches: unknown[];
+  status: string;
+};
+
+function jsonResponse(res: Response, status: number, body: unknown): void {
+  res.status(status).setHeader("Cache-Control", "no-store, max-age=0").json(body);
+}
+
+function isValidLayout(value: unknown): value is Layout {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  const coordinate = item.coordinate;
+  if (!coordinate || typeof coordinate !== "object") return false;
+  const point = coordinate as Record<string, unknown>;
+  return (
+    item.schemaVersion === 1 &&
+    typeof item.intersectionId === "string" &&
+    typeof item.intersectionName === "string" &&
+    Array.isArray(item.approaches) &&
+    typeof item.status === "string" &&
+    typeof point.lat === "number" && Number.isFinite(point.lat) &&
+    point.lat >= -90 && point.lat <= 90 &&
+    typeof point.lng === "number" && Number.isFinite(point.lng) &&
+    point.lng >= -180 && point.lng <= 180
+  );
+}
+
+function normalizeIntersectionId(value: string): string {
+  return value.trim();
+}
 
 export default async function handler(req: Request, res: Response) {
-  const intersectionId = typeof req.query.intersectionId === "string" ? req.query.intersectionId : "";
+  const rawIntersectionId = typeof req.query.intersectionId === "string" ? req.query.intersectionId : "";
+  const intersectionId = normalizeIntersectionId(rawIntersectionId);
   if (!intersectionId) return jsonResponse(res, 400, { error: "intersectionId is required" });
 
   if (req.method === "GET") {
     try {
-      const result = await list({ prefix: blobPath(intersectionId), limit: 1 });
-      const blob = result.blobs[0];
-      if (!blob) return jsonResponse(res, 404, { error: "Ground Truth not found" });
-      const response = await fetch(blob.url, { cache: "no-store" });
-      if (!response.ok) return jsonResponse(res, 502, { error: "Ground Truth storage read failed" });
-      return jsonResponse(res, 200, await response.json());
-    } catch (error) { console.error("Ground Truth GET failed", error); return jsonResponse(res, 500, { error: "Ground Truth read failed" }); }
+      const { data, error } = await supabase
+        .from("ground_truth")
+        .select("layout")
+        .eq("intersection_id", intersectionId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Ground Truth GET failed", error);
+        return jsonResponse(res, 500, { error: "Ground Truth read failed" });
+      }
+      if (!data) return jsonResponse(res, 404, { error: "Ground Truth not found" });
+      return jsonResponse(res, 200, data.layout);
+    } catch (error) {
+      console.error("Ground Truth GET failed", error);
+      return jsonResponse(res, 500, { error: "Ground Truth read failed" });
+    }
   }
 
   if (req.method === "PUT") {
@@ -27,19 +69,50 @@ export default async function handler(req: Request, res: Response) {
       const body = req.body as Record<string, unknown> | undefined;
       if (!body || typeof body !== "object") return jsonResponse(res, 400, { error: "JSON body is required" });
       if (body.intersectionId !== intersectionId) return jsonResponse(res, 400, { error: "intersectionId mismatch" });
-      if (body.schemaVersion !== 1 || typeof body.intersectionName !== "string" || !Array.isArray(body.approaches) || typeof body.status !== "string") return jsonResponse(res, 400, { error: "Invalid Ground Truth layout" });
-      const blob = await put(blobPath(intersectionId), JSON.stringify(body), { access: "public", addRandomSuffix: false, contentType: "application/json; charset=utf-8", cacheControlMaxAge: 0 });
-      return jsonResponse(res, 200, { ok: true, url: blob.url, layout: body });
-    } catch (error) { console.error("Ground Truth PUT failed", error); return jsonResponse(res, 500, { error: "Ground Truth write failed" }); }
+      if (!isValidLayout(body)) return jsonResponse(res, 400, { error: "Invalid Ground Truth layout" });
+
+      const { data, error } = await supabase
+        .from("ground_truth")
+        .upsert(
+          {
+            intersection_id: intersectionId,
+            layout: body,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "intersection_id" },
+        )
+        .select("layout")
+        .single();
+
+      if (error) {
+        console.error("Ground Truth PUT failed", error);
+        return jsonResponse(res, 500, { error: "Ground Truth write failed" });
+      }
+
+      return jsonResponse(res, 200, { ok: true, layout: data.layout });
+    } catch (error) {
+      console.error("Ground Truth PUT failed", error);
+      return jsonResponse(res, 500, { error: "Ground Truth write failed" });
+    }
   }
 
   if (req.method === "DELETE") {
     try {
-      const result = await list({ prefix: blobPath(intersectionId), limit: 1 });
-      const blob = result.blobs[0];
-      if (blob) await del(blob.url);
+      const { error } = await supabase
+        .from("ground_truth")
+        .delete()
+        .eq("intersection_id", intersectionId);
+
+      if (error) {
+        console.error("Ground Truth DELETE failed", error);
+        return jsonResponse(res, 500, { error: "Ground Truth delete failed" });
+      }
+
       return jsonResponse(res, 200, { ok: true });
-    } catch (error) { console.error("Ground Truth DELETE failed", error); return jsonResponse(res, 500, { error: "Ground Truth delete failed" }); }
+    } catch (error) {
+      console.error("Ground Truth DELETE failed", error);
+      return jsonResponse(res, 500, { error: "Ground Truth delete failed" });
+    }
   }
 
   res.setHeader("Allow", "GET, PUT, DELETE");
