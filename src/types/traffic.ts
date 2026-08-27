@@ -6,7 +6,8 @@
  * minimal transformation once integration begins.
  */
 
-/** KLID signal phase state values as returned by the official API. */
+import type { ManualIntersectionLayout } from "@/types/intersectionLayout";
+
 export type SignalPhaseState =
   | "protected-Movement-Allowed"
   | "protected-clearance"
@@ -31,12 +32,10 @@ export type MovementType =
   | "Bus"
   | "Bicycle";
 
-/** A single signal for one movement at one approach. */
 export interface TrafficSignal {
   direction: ApproachDirection;
   movement: MovementType;
   state: SignalPhaseState;
-  /** Undefined when the API did not provide a remaining-time field. */
   remainingSeconds?: number;
   cycleSeconds: number;
 }
@@ -56,22 +55,11 @@ export interface Intersection {
   totDt?: string;
   signals: TrafficSignal[];
   updatedAt: string;
+  groundTruth?: ManualIntersectionLayout;
 }
 
-export interface MarkerPosition {
-  x: number;
-  y: number;
-}
-
-export interface TrafficMarkerData {
-  intersectionId: string;
-  position: MarkerPosition;
-}
-
+export interface MarkerPosition { x: number; y: number; }
+export interface TrafficMarkerData { intersectionId: string; position: MarkerPosition; }
 export type DataStatus = "idle" | "loading" | "success" | "error";
 export type ViewMode = "driver" | "pedestrian";
-
-export interface IntersectionListResult {
-  intersections: Intersection[];
-  markers: TrafficMarkerData[];
-}
+export interface IntersectionListResult { intersections: Intersection[]; markers: TrafficMarkerData[]; }
