@@ -47,7 +47,7 @@ export function validateLayout(value: unknown, label: string): string[] {
 export interface IntersectionLayoutRepository {
   list(): ManualIntersectionLayout[];
   get(intersectionId: string): ManualIntersectionLayout | null;
-  save(layout: ManualIntersectionLayout): void;
+  save(layout: ManualIntersectionLayout): Promise<void>;
   remove(intersectionId: string): void;
   replaceAll(layouts: ManualIntersectionLayout[]): void;
   exportAll(): GroundTruthExport;
@@ -64,33 +64,45 @@ function read(): ManualIntersectionLayout[] {
   } catch { return []; }
 }
 function write(layouts: ManualIntersectionLayout[]): void { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts)); }
-function persistShared(layout: ManualIntersectionLayout): void {
-  void fetch(`/api/ground-truth/${encodeURIComponent(layout.intersectionId)}`, {
+async function persistShared(layout: ManualIntersectionLayout): Promise<void> {
+  const response = await fetch(`/api/ground-truth/${encodeURIComponent(layout.intersectionId)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(layout),
     cache: "no-store",
-  }).catch((error) => console.error("[SignalNow] shared Ground Truth save failed", error));
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    const detail = text.slice(0, 500);
+    const message = `Ground Truth API save failed: ${response.status}${detail ? ` ${detail}` : ""}`;
+    console.error("[SignalNow] shared Ground Truth save failed", { intersectionId: layout.intersectionId, status: response.status, response: detail });
+    throw new Error(message);
+  }
 }
 function removeShared(intersectionId: string): void {
-  void fetch(`/api/ground-truth/${encodeURIComponent(intersectionId)}`, { method: "DELETE", cache: "no-store" }).catch((error) => console.error("[SignalNow] shared Ground Truth delete failed", error));
+  void fetch(`/api/ground-truth/${encodeURIComponent(intersectionId)}`, { method: "DELETE", cache: "no-store" }).then(async (response) => {
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 500);
+      console.error("[SignalNow] shared Ground Truth delete failed", { intersectionId, status: response.status, response: text });
+    }
+  }).catch((error) => console.error("[SignalNow] shared Ground Truth delete failed", { intersectionId, error }));
 }
 
 export const intersectionLayoutRepository: IntersectionLayoutRepository = {
   list: () => read(),
   get: (intersectionId) => read().find((item) => item.intersectionId === intersectionId) ?? null,
-  save: (layout) => {
+  save: async (layout) => {
     const errors = validateLayout(layout, layout.intersectionId);
     if (errors.length) throw new Error(errors[0]);
     write([...read().filter((item) => item.intersectionId !== layout.intersectionId), layout]);
-    persistShared(layout);
+    await persistShared(layout);
   },
   remove: (intersectionId) => { write(read().filter((item) => item.intersectionId !== intersectionId)); removeShared(intersectionId); },
   replaceAll: (layouts) => {
     const errors = layouts.flatMap((item) => validateLayout(item, item.intersectionId));
     if (errors.length) throw new Error(errors[0]);
     const ids = new Set<string>(); for (const item of layouts) { if (ids.has(item.intersectionId)) throw new Error(`Duplicate intersection ID: ${item.intersectionId}`); ids.add(item.intersectionId); }
-    write(layouts); layouts.forEach(persistShared);
+    write(layouts); layouts.forEach((item) => { void persistShared(item).catch((error) => console.error("[SignalNow] shared Ground Truth save failed", { intersectionId: item.intersectionId, error })); });
   },
   exportAll: () => ({ schemaVersion: 1, generatedAt: new Date().toISOString(), exportedAt: new Date().toISOString(), source: "SignalNow Ground Truth Editor", intersections: read() }),
   importAll: (payload) => {
@@ -106,7 +118,7 @@ export const intersectionLayoutRepository: IntersectionLayoutRepository = {
       if (!itemErrors.length && id) { ids.add(id); valid.push(item as ManualIntersectionLayout); } else errors.push(...itemErrors);
     });
     if (errors.length) return { imported: 0, skipped: root.intersections.length - valid.length, errors };
-    const byId = new Map(read().map((item) => [item.intersectionId, item])); valid.forEach((item) => byId.set(item.intersectionId, item)); write([...byId.values()]); valid.forEach(persistShared);
+    const byId = new Map(read().map((item) => [item.intersectionId, item])); valid.forEach((item) => byId.set(item.intersectionId, item)); write([...byId.values()]); valid.forEach((item) => { void persistShared(item).catch((error) => console.error("[SignalNow] shared Ground Truth save failed", { intersectionId: item.intersectionId, error })); });
     return { imported: valid.length, skipped: 0, errors: [] };
   },
 };
