@@ -1,0 +1,44 @@
+name: one-time-ground-truth-pagination-fix
+on:
+  push:
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch admin full-pagination path
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/services/viewportTrafficService.ts')
+          s = p.read_text()
+          old = '''async function loadNextIntersectionPage(): Promise<Intersection[]> { if (totalPages > 0 && nextPage > totalPages) return []; const pageNo = nextPage;'''
+          new = '''async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<Intersection[]> { if (!allowBeyondKnownTotal && totalPages > 0 && nextPage > totalPages) return []; const pageNo = nextPage;'''
+          if old not in s:
+              raise SystemExit('expected loadNextIntersectionPage signature not found')
+          s = s.replace(old, new, 1)
+          old = '''if (loadAll) { while (totalPages === 0 || nextPage <= totalPages) { const pageItems = await loadNextIntersectionPage(); debugLog("all intersection loading", { region: activeRegionId, stdgCd: getActiveRegion().stdgCd, pageNo: nextPage - 1, totalPages, apiItems: pageItems.length, parsedItems: intersectionCache.size }); if (pageItems.length === 0) break; } return [...intersectionCache.values()]; }'''
+          new = '''if (loadAll) { let pageItems: Intersection[] = []; do { pageItems = await loadNextIntersectionPage(true); debugLog("all intersection loading", { region: activeRegionId, stdgCd: getActiveRegion().stdgCd, pageNo: nextPage - 1, totalPages, apiItems: pageItems.length, parsedItems: intersectionCache.size }); if (pageItems.length === 0 || pageItems.length < INTERSECTION_PAGE_ROWS) break; } while (true); return [...intersectionCache.values()]; }'''
+          if old not in s:
+              raise SystemExit('expected loadAll block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Validate
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          git diff --check
+          git diff -- src/services/viewportTrafficService.ts
+      - name: Commit and push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/services/viewportTrafficService.ts
+          git rm .github/workflows/one-time-ground-truth-pagination-fix.yml
+          git commit -m 'fix: make ground truth full pagination resilient to API totals'
+          git push origin HEAD:main
