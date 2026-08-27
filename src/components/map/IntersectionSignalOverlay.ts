@@ -3,7 +3,7 @@ import type { IntersectionRoadGeometry, RoadApproach } from "@/services/roadGeom
 import type { ManualIntersectionLayout, ApproachGroundTruth } from "@/types/intersectionLayout";
 
 const DIRECTION_ORDER: ApproachDirection[] = ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"];
-const DIRECTION_LABEL: Record<ApproachDirection, string> = { North: "북", NorthEast: "북동", East: "동", SouthEast: "남동", South: "남서", West: "서", NorthWest: "북서" };
+const DIRECTION_LABEL: Record<ApproachDirection, string> = { North: "북", NorthEast: "북동", East: "동", SouthEast: "남동", South: "남", SouthWest: "남서", West: "서", NorthWest: "북서" };
 const DIRECTION_ANGLE: Record<ApproachDirection, number> = { North: 0, NorthEast: 45, East: 90, SouthEast: 135, South: 180, SouthWest: 225, West: 270, NorthWest: 315 };
 const STATE_COLOR: Record<SignalPhaseState, string> = { "protected-Movement-Allowed": "var(--color-signal-green)", "protected-clearance": "var(--color-signal-yellow)", "stop-And-Remain": "var(--color-signal-red)" };
 const MOVEMENT_LABEL: Partial<Record<TrafficSignal["movement"], string>> = { Straight: "직진", "Left Turn": "좌회전", "Right Turn": "우회전", "U Turn": "유턴", Pedestrian: "보행", Bus: "버스", Bicycle: "자전거" };
