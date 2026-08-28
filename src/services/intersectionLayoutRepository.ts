@@ -1,4 +1,4 @@
-import type { GroundTruthExport, ManualIntersectionLayout, SignalRotationMap } from "@/types/intersectionLayout";
+import type { GroundTruthExport, ManualIntersectionLayout } from "@/types/intersectionLayout";
 import type { MovementType } from "@/types/traffic";
 
 const STORAGE_KEY = "signalnow-intersection-ground-truth-v1";
