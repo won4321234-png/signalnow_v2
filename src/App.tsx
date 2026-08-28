@@ -38,6 +38,10 @@ function AppInner() {
   const [regionId, setRegionId] = useState<TrafficRegionId>(() => getStoredRegion());
   const region = TRAFFIC_REGIONS[regionId];
   const [intersections, setIntersections] = useState<Intersection[]>([]);
+  const [searchIntersections, setSearchIntersections] = useState<Intersection[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchReady, setSearchReady] = useState(false);
+  const searchRequestRef = useRef(0);
   const [status, setStatus] = useState<DataStatus>("idle");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -69,6 +73,10 @@ function AppInner() {
     signalRefreshRetryRef.current.clear();
     setRegionId(nextRegionId);
     setIntersections([]);
+    setSearchIntersections([]);
+    setSearchLoading(false);
+    setSearchReady(false);
+    searchRequestRef.current += 1;
     setStatus("idle");
     setSelectedId(null);
     setSheetOpen(false);
@@ -78,6 +86,21 @@ function AppInner() {
     setCountdownNow(Date.now());
     setDebugInfo({ apiStatus: "-", itemCount: 0, targetId: "-", matched: false, extractedCount: 0, finalCount: 0, state: "idle", reason: "region-changed", signalDiagnostics: [], receivedAt: null });
   }, [regionId]);
+
+  const handleLoadSearchIntersections = useCallback(async () => {
+    if (searchLoading || searchReady) return;
+    const requestId = ++searchRequestRef.current;
+    const requestedRegion = regionId;
+    setSearchLoading(true);
+    try {
+      const all = await loadIntersectionsForViewport({ south: 0, west: 0, north: 0, east: 0 }, { loadAll: true });
+      if (requestId !== searchRequestRef.current || requestedRegion !== regionId) return;
+      const hydrated = all.map((intersection) => { const cachedSignals = signalDataRef.current.get(intersection.crsrdId); return cachedSignals ? { ...intersection, signals: cachedSignals } : intersection; });
+      setSearchIntersections(hydrated);
+      setSearchReady(true);
+      debugLog("global search dataset ready", { region: regionId, datasetCount: hydrated.length });
+    } catch (error) { if (requestId === searchRequestRef.current) console.error("[SignalNow] 전체 교차로 검색 데이터 로딩 실패", error); } finally { if (requestId === searchRequestRef.current) setSearchLoading(false); }
+  }, [regionId, searchLoading, searchReady]);
 
   const handleViewportChange = useCallback(async (viewport: Viewport) => {
     const requestId = ++viewportRequestRef.current;
@@ -192,13 +215,13 @@ function AppInner() {
 
   const selectedIntersection = useMemo(() => {
     if (!selectedId) return null;
-    const intersection = intersections.find((item) => item.crsrdId === selectedId) ?? null;
+    const intersection = intersections.find((item) => item.crsrdId === selectedId) ?? searchIntersections.find((item) => item.crsrdId === selectedId) ?? null;
     if (!intersection) return null;
     const receivedAt = signalReceivedAtRef.current.get(selectedId);
     const sourceSignals = signalDataRef.current.get(selectedId) ?? intersection.signals;
     if (!receivedAt) return { ...intersection, signals: sourceSignals };
     return { ...intersection, signals: getCountdownSignals(sourceSignals, receivedAt, countdownNow) };
-  }, [selectedId, intersections, countdownNow]);
+  }, [selectedId, intersections, searchIntersections, countdownNow]);
 
   const recentIntersections = useMemo(() => recentIds.map((id) => intersections.find((intersection) => intersection.crsrdId === id)).filter((i): i is Intersection => i !== undefined), [recentIds, intersections]);
   const recordRecent = useCallback((id: string) => setRecentIds((prev) => [id, ...prev.filter((r) => r !== id)].slice(0, MAX_RECENT)), []);
@@ -218,8 +241,8 @@ function AppInner() {
     <div className="h-svh overflow-hidden bg-background">
       {page === "map" && <div className="relative h-full w-full [--signal-header-height:3.5rem] [--signal-desktop-sheet-width:min(360px,32vw)]">
         <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} sheetOpen={sheetOpen} /></div>
-        <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} onSelectIntersection={handleSelectIntersection} />
-        <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
+        <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} searchIntersections={searchIntersections} searchLoading={searchLoading} searchReady={searchReady} onLoadSearchIntersections={handleLoadSearchIntersections} onSelectIntersection={handleSelectIntersection} />
+        <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} searchIntersections={searchIntersections} searchLoading={searchLoading} searchReady={searchReady} onLoadSearchIntersections={handleLoadSearchIntersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
         <div className="pointer-events-none absolute left-4 top-[4.5rem] z-40 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden lg:flex"><div className="pointer-events-auto m-4 flex items-center gap-3 rounded-xl border border-border/20 bg-card/80 glass px-4 py-2 text-[11px] font-medium text-muted-foreground elevation-2"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-green" /> 원활</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-yellow" /> 보통</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-signal-red" /> 혼잡</span><span className="text-muted-foreground/50">정보없음</span><span className="ml-1 flex items-center gap-1 text-muted-foreground/50"><span className="relative flex size-1.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-signal-green/40" /><span className="relative inline-flex size-1.5 rounded-full bg-signal-green" /></span> API 연동됨</span></div></div>
         {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center lg:left-4 lg:right-[var(--signal-desktop-sheet-width)]"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
