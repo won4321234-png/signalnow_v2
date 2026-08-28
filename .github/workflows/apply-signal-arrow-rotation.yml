@@ -1,0 +1,85 @@
+name: Apply signal arrow rotation feature
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !startsWith(github.event.head_commit.message, 'feat: add editable signal arrow rotation to ground truth') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch rotation support
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def patch(path, replacements):
+              p = Path(path)
+              s = p.read_text()
+              for old, new in replacements:
+                  if old not in s:
+                      raise SystemExit(f'Missing patch anchor in {path}: {old[:120]}')
+                  s = s.replace(old, new, 1)
+              p.write_text(s)
+
+          patch('src/types/intersectionLayout.ts', [
+              ('    labelRotation?: number;\n    signalPosition?: { lat: number; lng: number };', '    labelRotation?: number;\n    /** Manual rotation offset for rendered signal arrows, in degrees (-180..180). */\n    signalRotation?: number;\n    signalPosition?: { lat: number; lng: number };'),
+              ('    labelRotation?: number;\n    signalPosition?: { lat: number; lng: number };\n    source: GroundTruthSource;', '    labelRotation?: number;\n    /** Persisted manual rotation offset for rendered signal arrows, in degrees (-180..180). */\n    signalRotation?: number;\n    signalPosition?: { lat: number; lng: number };\n    source: GroundTruthSource;'),
+          ])
+
+          patch('src/services/intersectionLayoutRepository.ts', [
+              ('    for (const bearing of [approach.auto?.roadBearing, approach.auto?.axisBearing, approach.manual?.roadBearing, approach.manual?.axisBearing, approach.final?.roadBearing, approach.final?.axisBearing]) {', '    for (const rotation of [approach.manual?.signalRotation, approach.final?.signalRotation]) {\n      if (rotation !== undefined && (!finite(rotation) || rotation < -180 || rotation > 180)) errors.push(`${prefix}: signalRotation must be in [-180, 180].`);\n    }\n    for (const bearing of [approach.auto?.roadBearing, approach.auto?.axisBearing, approach.manual?.roadBearing, approach.manual?.axisBearing, approach.final?.roadBearing, approach.final?.axisBearing]) {'),
+          ])
+
+          patch('src/components/map/IntersectionSignalOverlay.ts', [
+              ('function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefined, direction: ApproachDirection): string {', 'function buildSignalChip(signal: TrafficSignal, approach: RoadApproach | undefined, direction: ApproachDirection, signalRotation = 0): string {'),
+              ('const arrowAngle = movementArrowAngle(approach, direction, signal.movement);', 'const arrowAngle = normalizeAngle(movementArrowAngle(approach, direction, signal.movement) + signalRotation);'),
+              ('const chips = orderedSignals.map((signal) => buildSignalChip(signal, approach, direction)).join("");', 'const signalRotation = gtApproach?.final?.signalRotation ?? gtApproach?.manual?.signalRotation ?? 0;\n  const chips = orderedSignals.map((signal) => buildSignalChip(signal, approach, direction, signalRotation)).join("");'),
+          ])
+
+          patch('src/pages/IntersectionGroundTruthEditorV2.tsx', [
+              ('const hasManual = (a: ApproachGroundTruth) => Boolean(a.manual?.signalPosition || a.manual?.roadBearing !== undefined || a.manual?.distanceMeters !== undefined);', 'const hasManual = (a: ApproachGroundTruth) => Boolean(a.manual?.signalRotation !== undefined || a.manual?.signalPosition || a.manual?.roadBearing !== undefined || a.manual?.distanceMeters !== undefined);'),
+              ('const hasFinal = (a: ApproachGroundTruth) => Boolean(a.final?.signalPosition || a.final?.roadBearing !== undefined || a.final?.distanceMeters !== undefined);', 'const hasFinal = (a: ApproachGroundTruth) => Boolean(a.final?.signalRotation !== undefined || a.final?.signalPosition || a.final?.roadBearing !== undefined || a.final?.distanceMeters !== undefined);'),
+              ('function bearingBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {', 'function normalizeRotationOffset(value: number): number {\n  const normalized = ((value + 180) % 360 + 360) % 360 - 180;\n  return normalized === -180 ? 180 : normalized;\n}\nfunction bearingBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {'),
+              ('if (patch.axisBearing !== undefined) target.manual.axisBearing = normalizeBearing(patch.axisBearing); target.final = undefined;', 'if (patch.axisBearing !== undefined) target.manual.axisBearing = normalizeBearing(patch.axisBearing); if (patch.signalRotation !== undefined) target.manual.signalRotation = normalizeRotationOffset(patch.signalRotation); target.final = undefined;'),
+              ('for (const b of [a.auto?.roadBearing, a.auto?.axisBearing, a.manual?.roadBearing, a.manual?.axisBearing, a.final?.roadBearing, a.final?.axisBearing])', 'for (const rotation of [a.manual?.signalRotation, a.final?.signalRotation]) if (rotation !== undefined && (!Number.isFinite(rotation) || rotation < -180 || rotation > 180)) return `${directionLabel(a.direction)} signal rotation이 유효하지 않습니다.`; for (const b of [a.auto?.roadBearing, a.auto?.axisBearing, a.manual?.roadBearing, a.manual?.axisBearing, a.final?.roadBearing, a.final?.axisBearing])'),
+              ('signalPosition: a.manual?.signalPosition, source: a.manual ? (a.auto ? "hybrid" : "manual") : "auto" };', 'signalPosition: a.manual?.signalPosition, signalRotation: a.manual?.signalRotation, source: a.manual ? (a.auto ? "hybrid" : "manual") : "auto" };'),
+          ])
+
+          p = Path('src/pages/IntersectionGroundTruthEditorV2.tsx')
+          s = p.read_text()
+          anchor = '<div className="rounded-2xl border bg-slate-50 p-3"><div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-black">AUTO · OSM</span>'
+          if anchor not in s:
+              raise SystemExit('Rotation UI anchor not found')
+          ui = '''<div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3"><div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-black">신호 화살표 방향 보정</span><span className="text-[10px] font-bold text-blue-700">{current.manual?.signalRotation !== undefined ? `${current.manual.signalRotation}°` : "자동"}</span></div><div className="flex items-center gap-2"><button onClick={() => updateManual({ signalRotation: (current.manual?.signalRotation ?? 0) - 5 })} className="rounded-lg border bg-white px-3 py-2 text-sm font-black" title="반시계 5도">↺</button><div className="flex flex-1 items-center justify-center gap-2"><span className="text-2xl font-black" style={{ transform: `rotate(${normalizeBearing((current.auto?.roadBearing ?? fallbackBearing(current.direction)) + 180 + (current.manual?.signalRotation ?? 0))}deg)`, display: "inline-block" }}>↑</span><input aria-label="신호 화살표 보정 각도" type="number" min="-180" max="180" step="5" value={current.manual?.signalRotation ?? 0} onChange={(e) => updateManual({ signalRotation: Number(e.target.value) })} className="w-20 rounded-lg border bg-white px-2 py-2 text-center text-xs font-bold"/><span className="text-xs text-slate-500">°</span></div><button onClick={() => updateManual({ signalRotation: (current.manual?.signalRotation ?? 0) + 5 })} className="rounded-lg border bg-white px-3 py-2 text-sm font-black" title="시계 5도">↻</button></div><button onClick={resetSelected} disabled={current.manual?.signalRotation === undefined} className="mt-2 w-full rounded-lg border bg-white px-2 py-1.5 text-[10px] font-bold disabled:opacity-40">자동 방향으로 초기화</button><div className="mt-2 text-[10px] text-slate-500">값은 자동 계산된 신호 화살표에 더해지는 수동 보정각입니다. 저장 후에도 유지됩니다.</div></div>'''
+          s = s.replace(anchor, ui + anchor, 1)
+          p.write_text(s)
+      - name: Typecheck
+        run: npm ci && npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit patched feature and remove one-shot workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-signal-arrow-rotation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/types/intersectionLayout.ts src/services/intersectionLayoutRepository.ts src/components/map/IntersectionSignalOverlay.ts src/pages/IntersectionGroundTruthEditorV2.tsx .github/workflows/apply-signal-arrow-rotation.yml
+          git diff --cached --check
+          git commit -m "feat: add editable signal arrow rotation to ground truth"
+          git push
