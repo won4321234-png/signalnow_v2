@@ -5,6 +5,7 @@ export type GroundTruthApproachState = "AUTO" | "MANUAL" | "FINAL";
 export type IntersectionVerificationStatus = "UNREVIEWED" | "AUTO_READY" | "REVIEW_REQUIRED" | "MANUAL_ONLY" | "VERIFIED";
 export type IntersectionType = "FOUR_WAY" | "T_JUNCTION" | "Y_JUNCTION" | "ROUNDABOUT" | "OFFSET_INTERSECTION" | "COMPLEX" | "OTHER";
 export type CorrectionReason = "ROAD_AXIS_WRONG" | "OSM_GEOMETRY_WRONG" | "LANE_OFFSET_WRONG" | "INTERSECTION_CENTER_WRONG" | "DIRECTION_MAPPING_WRONG" | "SIGNAL_POSITION_WRONG" | "OTHER";
+export type SignalRotationMap = Partial<Record<MovementType, number>>;
 
 export interface LaneGroundTruth {
   laneIndex: number;
@@ -34,8 +35,11 @@ export interface ApproachGroundTruth {
     distanceMeters?: number;
     offsetMeters?: { longitudinal: number; lateral: number };
     labelRotation?: number;
-    /** Manual rotation offset for rendered signal arrows, in degrees (-180..180). */
-    signalRotation?: number;
+    /**
+     * Manual rotation offsets for rendered signal arrows.
+     * New data is stored per movement; a numeric value is accepted for legacy layouts.
+     */
+    signalRotation?: number | SignalRotationMap;
     signalPosition?: { lat: number; lng: number };
     lanes: LaneGroundTruth[];
     laneCount?: number;
@@ -51,8 +55,8 @@ export interface ApproachGroundTruth {
     distanceMeters?: number;
     offsetMeters?: { longitudinal: number; lateral: number };
     labelRotation?: number;
-    /** Persisted manual rotation offset for rendered signal arrows, in degrees (-180..180). */
-    signalRotation?: number;
+    /** Persisted movement-specific manual rotation offsets; numeric values remain valid for legacy data. */
+    signalRotation?: number | SignalRotationMap;
     signalPosition?: { lat: number; lng: number };
     source: GroundTruthSource;
   };
