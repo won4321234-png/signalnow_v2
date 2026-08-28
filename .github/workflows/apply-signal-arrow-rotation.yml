@@ -9,7 +9,6 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ !startsWith(github.event.head_commit.message, 'feat: add editable signal arrow rotation to ground truth') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +24,8 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          if Path('.github/workflows/apply-signal-arrow-rotation.yml').exists():
+              pass
 
           def patch(path, replacements):
               p = Path(path)
