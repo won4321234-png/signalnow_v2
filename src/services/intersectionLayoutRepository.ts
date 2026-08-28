@@ -1,9 +1,11 @@
-import type { GroundTruthExport, ManualIntersectionLayout } from "@/types/intersectionLayout";
+import type { GroundTruthExport, ManualIntersectionLayout, SignalRotationMap } from "@/types/intersectionLayout";
+import type { MovementType } from "@/types/traffic";
 
 const STORAGE_KEY = "signalnow-intersection-ground-truth-v1";
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const validBearing = (value: unknown): boolean => finite(value) && value >= 0 && value < 360;
 const validDirection = new Set(["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"]);
+const validMovement = new Set<MovementType>(["Straight", "Left Turn", "Right Turn", "U Turn", "Pedestrian", "Bus", "Bicycle"]);
 const validState = new Set(["AUTO", "MANUAL", "FINAL"]);
 const validSource = new Set(["auto", "manual", "hybrid"]);
 const validStatus = new Set(["UNREVIEWED", "AUTO_READY", "REVIEW_REQUIRED", "MANUAL_ONLY", "VERIFIED"]);
@@ -13,6 +15,22 @@ function isLayout(value: unknown): value is ManualIntersectionLayout {
   const item = value as Record<string, unknown>;
   const coordinate = item.coordinate as Record<string, unknown> | undefined;
   return item.schemaVersion === 1 && typeof item.intersectionId === "string" && typeof item.intersectionName === "string" && Boolean(coordinate) && finite(coordinate?.lat) && finite(coordinate?.lng) && Array.isArray(item.approaches) && typeof item.status === "string" && validStatus.has(item.status);
+}
+
+function validateSignalRotation(value: unknown, prefix: string, errors: string[]): void {
+  if (value === undefined) return;
+  if (finite(value)) {
+    if (value < -180 || value > 180) errors.push(`${prefix}: signalRotation must be in [-180, 180].`);
+    return;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push(`${prefix}: signalRotation must be a number or movement map.`);
+    return;
+  }
+  for (const [movement, rotation] of Object.entries(value as Record<string, unknown>)) {
+    if (!validMovement.has(movement as MovementType)) errors.push(`${prefix}: invalid movement key ${movement}.`);
+    if (!finite(rotation) || rotation < -180 || rotation > 180) errors.push(`${prefix}.${movement}: signalRotation must be in [-180, 180].`);
+  }
 }
 
 export function validateLayout(value: unknown, label: string): string[] {
@@ -33,9 +51,8 @@ export function validateLayout(value: unknown, label: string): string[] {
     for (const position of [approach.manual?.signalPosition, approach.final?.signalPosition]) {
       if (position && (!finite(position.lat) || !finite(position.lng) || position.lat < -90 || position.lat > 90 || position.lng < -180 || position.lng > 180)) errors.push(`${prefix}: invalid signal coordinates.`);
     }
-    for (const rotation of [approach.manual?.signalRotation, approach.final?.signalRotation]) {
-      if (rotation !== undefined && (!finite(rotation) || rotation < -180 || rotation > 180)) errors.push(`${prefix}: signalRotation must be in [-180, 180].`);
-    }
+    validateSignalRotation(approach.manual?.signalRotation, `${prefix}.manual`, errors);
+    validateSignalRotation(approach.final?.signalRotation, `${prefix}.final`, errors);
     for (const bearing of [approach.auto?.roadBearing, approach.auto?.axisBearing, approach.manual?.roadBearing, approach.manual?.axisBearing, approach.final?.roadBearing, approach.final?.axisBearing]) {
       if (bearing !== undefined && !validBearing(bearing)) errors.push(`${prefix}: bearing must be in [0, 360).`);
     }
