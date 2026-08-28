@@ -12,8 +12,17 @@ type Layout = {
   status: string;
 };
 
+const validMovements = new Set(["Straight", "Left Turn", "Right Turn", "U Turn", "Pedestrian", "Bus", "Bicycle"]);
+
 function jsonResponse(res: Response, status: number, body: unknown): void {
   res.status(status).setHeader("Cache-Control", "no-store, max-age=0").json(body);
+}
+
+function isValidSignalRotation(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value === "number") return Number.isFinite(value) && value >= -180 && value <= 180;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value as Record<string, unknown>).every(([movement, rotation]) => validMovements.has(movement) && typeof rotation === "number" && Number.isFinite(rotation) && rotation >= -180 && rotation <= 180);
 }
 
 function isValidLayout(value: unknown): value is Layout {
@@ -22,11 +31,21 @@ function isValidLayout(value: unknown): value is Layout {
   const coordinate = item.coordinate;
   if (!coordinate || typeof coordinate !== "object") return false;
   const point = coordinate as Record<string, unknown>;
+  if (!Array.isArray(item.approaches)) return false;
+  const approachesValid = item.approaches.every((approach) => {
+    if (!approach || typeof approach !== "object") return false;
+    const candidate = approach as Record<string, unknown>;
+    const manual = candidate.manual;
+    const final = candidate.final;
+    const manualRotation = manual && typeof manual === "object" ? (manual as Record<string, unknown>).signalRotation : undefined;
+    const finalRotation = final && typeof final === "object" ? (final as Record<string, unknown>).signalRotation : undefined;
+    return isValidSignalRotation(manualRotation) && isValidSignalRotation(finalRotation);
+  });
   return (
     item.schemaVersion === 1 &&
     typeof item.intersectionId === "string" &&
     typeof item.intersectionName === "string" &&
-    Array.isArray(item.approaches) &&
+    approachesValid &&
     typeof item.status === "string" &&
     typeof point.lat === "number" && Number.isFinite(point.lat) &&
     point.lat >= -90 && point.lat <= 90 &&
