@@ -34,6 +34,8 @@ export interface ApproachGroundTruth {
     distanceMeters?: number;
     offsetMeters?: { longitudinal: number; lateral: number };
     labelRotation?: number;
+    /** Manual rotation offset for rendered signal arrows, in degrees (-180..180). */
+    signalRotation?: number;
     signalPosition?: { lat: number; lng: number };
     lanes: LaneGroundTruth[];
     laneCount?: number;
@@ -49,6 +51,8 @@ export interface ApproachGroundTruth {
     distanceMeters?: number;
     offsetMeters?: { longitudinal: number; lateral: number };
     labelRotation?: number;
+    /** Persisted manual rotation offset for rendered signal arrows, in degrees (-180..180). */
+    signalRotation?: number;
     signalPosition?: { lat: number; lng: number };
     source: GroundTruthSource;
   };

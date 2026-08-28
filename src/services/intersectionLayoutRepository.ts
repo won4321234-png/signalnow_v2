@@ -33,6 +33,9 @@ export function validateLayout(value: unknown, label: string): string[] {
     for (const position of [approach.manual?.signalPosition, approach.final?.signalPosition]) {
       if (position && (!finite(position.lat) || !finite(position.lng) || position.lat < -90 || position.lat > 90 || position.lng < -180 || position.lng > 180)) errors.push(`${prefix}: invalid signal coordinates.`);
     }
+    for (const rotation of [approach.manual?.signalRotation, approach.final?.signalRotation]) {
+      if (rotation !== undefined && (!finite(rotation) || rotation < -180 || rotation > 180)) errors.push(`${prefix}: signalRotation must be in [-180, 180].`);
+    }
     for (const bearing of [approach.auto?.roadBearing, approach.auto?.axisBearing, approach.manual?.roadBearing, approach.manual?.axisBearing, approach.final?.roadBearing, approach.final?.axisBearing]) {
       if (bearing !== undefined && !validBearing(bearing)) errors.push(`${prefix}: bearing must be in [0, 360).`);
     }
