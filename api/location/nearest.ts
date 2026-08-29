@@ -5,11 +5,14 @@ type IntersectionRecord = { crsrdId?: string; crsrdNm?: string; mapCtptIntLat?: 
 
 const API_BASE_URL = "https://apis.data.go.kr/B551982/rti/crsrd_map_info";
 const MAX_SEARCH_DISTANCE_METERS = 3000;
+const MAX_AUTO_SELECT_DISTANCE_METERS = 500;
+const MAX_ACCEPTED_ACCURACY_METERS = 150;
 const MAX_PAGES = 100;
 const PAGE_SIZE = 100;
 const DATA_CACHE_TTL_MS = 5 * 60 * 1000;
 const intersectionCache = new Map<string, { expiresAt: number; items: IntersectionRecord[] }>();
 const inFlightCache = new Map<string, Promise<IntersectionRecord[]>>();
+const SUPPORTED_REGIONS = new Set(["1100000000", "3100000000"]);
 
 function jsonResponse(res: Response, status: number, body: unknown): void { res.status(status).setHeader("Cache-Control", "no-store, max-age=0").json(body); }
 function numberParam(value: unknown): number | null { const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) ? parsed : null; }
@@ -50,12 +53,14 @@ async function getIntersections(serviceKey: string, stdgCd: string): Promise<Int
 
 export default async function handler(req: Request, res: Response) {
   if (req.method && req.method !== "GET") { res.setHeader("Allow", "GET"); return jsonResponse(res, 405, { error: "Method not allowed" }); }
-  const lat = numberParam(req.query.lat); const lng = numberParam(req.query.lng); const stdgCd = typeof req.query.stdgCd === "string" ? req.query.stdgCd.trim() : "";
+  const lat = numberParam(req.query.lat); const lng = numberParam(req.query.lng); const accuracy = numberParam(req.query.accuracy); const stdgCd = typeof req.query.stdgCd === "string" ? req.query.stdgCd.trim() : "";
   const serviceKey = process.env.TRAFFIC_API_SERVICE_KEY || process.env.TRAFFIC_API_KEY || process.env.VITE_TRAFFIC_API_KEY || process.env.VITE_DATA_API_SERVICE_KEY || "";
   if (lat === null || lat < -90 || lat > 90 || lng === null || lng < -180 || lng > 180) return jsonResponse(res, 400, { error: "Valid lat and lng are required" });
-  if (!stdgCd) return jsonResponse(res, 400, { error: "stdgCd is required" });
+  if (!stdgCd || !SUPPORTED_REGIONS.has(stdgCd)) return jsonResponse(res, 400, { error: "Unsupported traffic region" });
+  if (accuracy !== null && (accuracy < 0 || accuracy > 5000)) return jsonResponse(res, 400, { error: "Invalid location accuracy" });
   if (!serviceKey.trim()) return jsonResponse(res, 500, { error: "Traffic API service key is not configured" });
   try {
+    if (accuracy !== null && accuracy > MAX_ACCEPTED_ACCURACY_METERS) return jsonResponse(res, 200, { found: false, reason: "low_accuracy", accuracyMeters: Math.round(accuracy), maxAccuracyMeters: MAX_ACCEPTED_ACCURACY_METERS });
     const items = await getIntersections(serviceKey, stdgCd);
     let best: { intersection: IntersectionRecord; distanceMeters: number } | null = null;
     for (const item of items) {
@@ -64,7 +69,8 @@ export default async function handler(req: Request, res: Response) {
       const distance = distanceMeters(lat, lng, itemLat, itemLng);
       if (!best || distance < best.distanceMeters) best = { intersection: item, distanceMeters: distance };
     }
-    if (!best || best.distanceMeters > MAX_SEARCH_DISTANCE_METERS) return jsonResponse(res, 200, { found: false, maxDistanceMeters: MAX_SEARCH_DISTANCE_METERS });
-    return jsonResponse(res, 200, { found: true, distanceMeters: Math.round(best.distanceMeters), intersection: { crsrdId: String(best.intersection.crsrdId).trim(), crsrdNm: String(best.intersection.crsrdNm ?? "").trim(), lat: numberParam(best.intersection.mapCtptIntLat), lng: numberParam(best.intersection.mapCtptIntLot) } });
+    if (!best || best.distanceMeters > MAX_SEARCH_DISTANCE_METERS) return jsonResponse(res, 200, { found: false, reason: "too_far", maxDistanceMeters: MAX_SEARCH_DISTANCE_METERS });
+    if (best.distanceMeters > MAX_AUTO_SELECT_DISTANCE_METERS) return jsonResponse(res, 200, { found: false, reason: "no_confident_match", nearestDistanceMeters: Math.round(best.distanceMeters), maxAutoSelectDistanceMeters: MAX_AUTO_SELECT_DISTANCE_METERS });
+    return jsonResponse(res, 200, { found: true, confidence: "high", distanceMeters: Math.round(best.distanceMeters), intersection: { crsrdId: String(best.intersection.crsrdId).trim(), crsrdNm: String(best.intersection.crsrdNm ?? "").trim(), lat: numberParam(best.intersection.mapCtptIntLat), lng: numberParam(best.intersection.mapCtptIntLot) } });
   } catch (error) { console.error("[location/nearest] failed", error instanceof Error ? error.message : String(error)); return jsonResponse(res, 502, { error: "Unable to find nearest intersection" }); }
 }
