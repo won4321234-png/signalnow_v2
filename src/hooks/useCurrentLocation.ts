@@ -1,6 +1,6 @@
 /**
  * Browser geolocation plus server-side nearest-intersection lookup.
- * Location coordinates are used transiently for the lookup and are not persisted by this client hook.
+ * Coordinates are used transiently for lookup and are not persisted by this hook.
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -10,9 +10,10 @@ export type LocationError =
   | "position_unavailable"
   | "timeout"
   | "unsupported"
-  | "nearest_lookup_failed";
+  | "nearest_lookup_failed"
+  | "location_accuracy_low";
 
-export interface GeoCoords { lat: number; lng: number; }
+export interface GeoCoords { lat: number; lng: number; accuracy: number; heading: number | null; }
 export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; }
 export interface UseCurrentLocationResult {
   getLocation: () => void;
@@ -24,6 +25,7 @@ export interface UseCurrentLocationResult {
 
 const NEAREST_LOOKUP_INTERVAL_MS = 5000;
 const NEAREST_LOOKUP_MIN_MOVE_METERS = 25;
+const MAX_USABLE_ACCURACY_METERS = 150;
 
 function distanceMeters(a: GeoCoords, b: GeoCoords): number {
   const earthRadius = 6371000;
@@ -37,10 +39,10 @@ function distanceMeters(a: GeoCoords, b: GeoCoords): number {
 async function findNearestIntersection(coords: GeoCoords, signal: AbortSignal): Promise<NearestIntersection | null> {
   const storedRegion = window.localStorage.getItem("signalnow-region");
   const stdgCd = storedRegion === "ulsan" ? "3100000000" : "1100000000";
-  const params = new URLSearchParams({ lat: String(coords.lat), lng: String(coords.lng), stdgCd });
+  const params = new URLSearchParams({ lat: String(coords.lat), lng: String(coords.lng), accuracy: String(coords.accuracy), stdgCd });
   const response = await fetch(`/api/location/nearest?${params.toString()}`, { cache: "no-store", signal });
   if (!response.ok) throw new Error(`Nearest intersection API ${response.status}`);
-  const payload = await response.json() as { found?: boolean; distanceMeters?: number; intersection?: { crsrdId?: string; crsrdNm?: string; lat?: number; lng?: number } };
+  const payload = await response.json() as { found?: boolean; reason?: string; distanceMeters?: number; intersection?: { crsrdId?: string; crsrdNm?: string; lat?: number; lng?: number } };
   if (!payload.found || !payload.intersection?.crsrdId) return null;
   const lat = Number(payload.intersection.lat);
   const lng = Number(payload.intersection.lng);
@@ -50,7 +52,7 @@ async function findNearestIntersection(coords: GeoCoords, signal: AbortSignal): 
     crsrdNm: String(payload.intersection.crsrdNm ?? ""),
     lat,
     lng,
-    distanceMeters: Number(payload.distanceMeters ?? distanceMeters(coords, { lat, lng })),
+    distanceMeters: Number(payload.distanceMeters ?? distanceMeters(coords, { lat, lng, accuracy: coords.accuracy, heading: coords.heading })),
   };
 }
 
@@ -69,6 +71,13 @@ export function useCurrentLocation(): UseCurrentLocationResult {
     const previous = lastNearestLookupLocationRef.current;
     if (now - lastNearestLookupAtRef.current < NEAREST_LOOKUP_INTERVAL_MS) return;
     if (previous && distanceMeters(previous, coords) < NEAREST_LOOKUP_MIN_MOVE_METERS) return;
+    if (!Number.isFinite(coords.accuracy) || coords.accuracy > MAX_USABLE_ACCURACY_METERS) {
+      nearestRequestRef.current?.abort();
+      nearestRequestRef.current = null;
+      setNearestIntersection(null);
+      setError("location_accuracy_low");
+      return;
+    }
 
     lastNearestLookupAtRef.current = now;
     lastNearestLookupLocationRef.current = coords;
@@ -79,8 +88,9 @@ export function useCurrentLocation(): UseCurrentLocationResult {
     void findNearestIntersection(coords, controller.signal)
       .then((nearest) => {
         if (controller.signal.aborted) return;
-        // Clear stale results when the user is outside the supported search radius.
         setNearestIntersection(nearest);
+        if (nearest) setError(null);
+        else setError(null);
       })
       .catch((requestError) => {
         if (!controller.signal.aborted) {
@@ -102,24 +112,34 @@ export function useCurrentLocation(): UseCurrentLocationResult {
 
   const getLocation = useCallback(() => {
     if (!navigator?.geolocation) {
+      setLocation(null);
+      setNearestIntersection(null);
       setError("unsupported");
       return;
     }
 
     setLoading(true);
     setError(null);
+    setLocation(null);
     setNearestIntersection(null);
 
     const handleSuccess = (pos: GeolocationPosition) => {
-      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const accuracy = Number(pos.coords.accuracy);
+      const coords: GeoCoords = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: Number.isFinite(accuracy) ? accuracy : Number.POSITIVE_INFINITY,
+        heading: Number.isFinite(pos.coords.heading ?? NaN) ? pos.coords.heading : null,
+      };
       setLocation(coords);
       setLoading(false);
-      setError(null);
+      setError(coords.accuracy <= MAX_USABLE_ACCURACY_METERS ? null : "location_accuracy_low");
       lookupNearest(coords);
     };
 
     const handleError = (err: GeolocationPositionError) => {
       setLoading(false);
+      setLocation(null);
       setNearestIntersection(null);
       if (err.code === 1) setError("permission_denied");
       else if (err.code === 2) setError("position_unavailable");
