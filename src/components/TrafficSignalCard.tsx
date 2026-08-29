@@ -76,7 +76,7 @@ function SignalInterpretation({ signals, viewMode }: { signals: TrafficSignal[];
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-muted-foreground">{viewMode === "pedestrian" ? "보행자 안내" : "운전자 안내"}</p>
+            <p className="text-xs font-semibold text-muted-foreground">{viewMode === "pedestrian" ? "실제 보행신호" : "운전자 안내"}</p>
             {seconds !== null && <span className={cn("text-2xl font-black tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>{seconds}<span className="ml-0.5 text-xs font-bold">초</span></span>}
           </div>
           <p className="mt-1 text-base font-extrabold tracking-tight text-foreground">{interpretation.title}</p>
@@ -84,28 +84,22 @@ function SignalInterpretation({ signals, viewMode }: { signals: TrafficSignal[];
           {prediction?.available && predictedLabel && prediction.predictedChangeInSeconds !== undefined && (
             <div className="mt-3 rounded-xl border border-border/20 bg-background/70 px-3 py-2">
               <p className="text-[11px] font-bold text-foreground">다음 신호 <span className="text-muted-foreground">예상</span></p>
-              <p className="mt-0.5 text-xs font-semibold text-muted-foreground">
-                약 {prediction.predictedChangeInSeconds}초 후 {predictedLabel}
-              </p>
+              <p className="mt-0.5 text-xs font-semibold text-muted-foreground">약 {prediction.predictedChangeInSeconds}초 후 {predictedLabel}</p>
               <p className="mt-1 text-[10px] font-medium text-muted-foreground/70">현재 단계와 잔여시간을 기준으로 한 전환 예상입니다.</p>
             </div>
           )}
-          <p className="mt-2 text-[11px] font-medium text-muted-foreground/80">
-            {MOVEMENT_LABELS_KO[preferred.movement]} · {DIRECTION_LABELS_KO[preferred.direction]}
-          </p>
+          <p className="mt-2 text-[11px] font-medium text-muted-foreground/80">{MOVEMENT_LABELS_KO[preferred.movement]} · {DIRECTION_LABELS_KO[preferred.direction]}</p>
         </div>
       </div>
       {seconds !== null && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted/60"><div className={cn("h-full rounded-full transition-all duration-500 ease-linear", SIGNAL_BG_CLASS[color])} style={{ width: `${Math.min(100, Math.max(0, (seconds / Math.max(1, preferred.cycleSeconds)) * 100))}%` }} /></div>}
-      {!active && viewMode === "pedestrian" && <p className="mt-2 text-[10px] font-medium text-muted-foreground">신호 데이터 기준 안내이며 실제 현장 신호와 차이가 있을 수 있습니다.</p>}
+      {!active && viewMode === "pedestrian" && <p className="mt-2 text-[10px] font-medium text-muted-foreground">실제 보행신호 데이터 기준 안내이며 현장 상황과 차이가 있을 수 있습니다.</p>}
     </div>
   );
 }
 
 export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "driver" }: TrafficSignalCardProps) {
   if (signals.length === 0) return null;
-  const orderedSignals = viewMode === "pedestrian"
-    ? [...signals].sort((a, b) => Number(a.movement !== "Pedestrian") - Number(b.movement !== "Pedestrian"))
-    : signals;
+  const orderedSignals = viewMode === "pedestrian" ? [...signals].sort((a, b) => Number(a.movement !== "Pedestrian") - Number(b.movement !== "Pedestrian")) : signals;
   return (
     <section className="animate-card-enter" style={{ animationDelay: `${index * 60}ms` }}>
       {index === 1 && <SignalInterpretation signals={orderedSignals} viewMode={viewMode} />}
@@ -122,12 +116,7 @@ export function TrafficSignalCard({ direction, signals, index = 0, viewMode = "d
           return (
             <div key={`${sig.direction}-${sig.movement}-${idx}`}>
               {idx > 0 && <Separator className="my-3 border-border/15" />}
-              <div className="flex items-center gap-3 px-1">
-                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", SIGNAL_SOFT_BG_CLASS[color])}><Icon className={cn("size-4.5", SIGNAL_TEXT_CLASS[color])} /></span>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{MOVEMENT_LABELS_KO[sig.movement]}</span>
-                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold text-white", SIGNAL_BG_CLASS[color])}>{PHASE_LABELS[sig.state]}</span>
-                <div className="flex shrink-0 items-baseline gap-0.5"><span className={cn("text-xl font-extrabold tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>{displayRemaining ?? "—"}</span>{displayRemaining !== undefined && <span className="text-[10px] font-semibold text-muted-foreground">s</span>}</div>
-              </div>
+              <div className="flex items-center gap-3 px-1"><span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full", SIGNAL_SOFT_BG_CLASS[color])}><Icon className={cn("size-4.5", SIGNAL_TEXT_CLASS[color])} /></span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{MOVEMENT_LABELS_KO[sig.movement]}</span><span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold text-white", SIGNAL_BG_CLASS[color])}>{PHASE_LABELS[sig.state]}</span><div className="flex shrink-0 items-baseline gap-0.5"><span className={cn("text-xl font-extrabold tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>{displayRemaining ?? "—"}</span>{displayRemaining !== undefined && <span className="text-[10px] font-semibold text-muted-foreground">s</span>}</div></div>
               {progress !== undefined && <div className="mt-2.5 flex items-center gap-1.5 pl-10"><div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted/50"><div className={cn("h-full rounded-full transition-all duration-500 ease-linear", SIGNAL_BG_CLASS[color])} style={{ width: `${progress * 100}%` }} /></div><span className={cn("size-2 shrink-0 rounded-full", SIGNAL_BG_CLASS[color])} aria-hidden /></div>}
             </div>
           );
