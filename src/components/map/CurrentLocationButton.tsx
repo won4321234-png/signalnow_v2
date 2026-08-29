@@ -1,7 +1,6 @@
 /**
  * Floating button that triggers a browser Geolocation request and pans the
- * map to the user's current position. Reflects loading and error states with
- * appropriate icons and a tooltip.
+ * map to the user's current position. Reflects loading and error states.
  */
 
 import { LocateFixed, LoaderCircle, LocateOff } from "lucide-react";
@@ -17,11 +16,12 @@ interface CurrentLocationButtonProps {
 }
 
 const ERROR_TITLES: Record<LocationError, string> = {
-  permission_denied: "위치 권한이 거부되었습니다",
-  position_unavailable: "현재 위치를 가져올 수 없습니다",
-  timeout: "위치 요청이 시간 초과되었습니다",
-  unsupported: "이 브라우저는 위치 기능을 지원하지 않습니다",
-  nearest_lookup_failed: "주변 교차로를 찾을 수 없습니다",
+  permission_denied: "위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해 주세요.",
+  position_unavailable: "현재 위치를 가져올 수 없습니다. GPS 또는 네트워크 상태를 확인해 주세요.",
+  timeout: "위치 요청이 시간 초과되었습니다. 다시 눌러 주세요.",
+  unsupported: "이 브라우저는 위치 기능을 지원하지 않습니다.",
+  nearest_lookup_failed: "주변 교차로를 찾지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  location_accuracy_low: "위치 정확도가 낮습니다. GPS가 잘 잡히는 야외에서 다시 시도해 주세요.",
 };
 
 export function CurrentLocationButton({ onLocate, loading, error, className }: CurrentLocationButtonProps) {
@@ -29,8 +29,8 @@ export function CurrentLocationButton({ onLocate, loading, error, className }: C
   const title = isError
     ? ERROR_TITLES[error]
     : loading
-      ? "현재 위치 불러오는 중…"
-      : "내 위치로 이동";
+      ? "현재 위치와 주변 교차로를 찾는 중…"
+      : "내 위치와 가까운 교차로 찾기";
 
   return (
     <button
