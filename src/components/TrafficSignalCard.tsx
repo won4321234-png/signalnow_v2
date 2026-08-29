@@ -15,6 +15,7 @@ import {
   phaseProgress,
   type SignalColor,
 } from "@/lib/signal";
+import { predictNextSignalPhase } from "@/services/signalPredictionService";
 import type { ApproachDirection, MovementType, TrafficSignal, ViewMode } from "@/types/traffic";
 
 const MOVEMENT_ICON_MAP: Record<(typeof MOVEMENT_ICONS)[MovementType], LucideIcon> = {
@@ -60,6 +61,12 @@ function SignalInterpretation({ signals, viewMode }: { signals: TrafficSignal[];
   const seconds = preferred.remainingSeconds === undefined ? null : Math.max(0, Math.floor(preferred.remainingSeconds));
   const active = preferred.state === "protected-Movement-Allowed";
   const color = phaseColor(preferred.state);
+  const prediction = viewMode === "driver" ? predictNextSignalPhase(preferred) : null;
+  const predictedLabel = prediction?.predictedNextState === "protected-clearance"
+    ? "황색 전환"
+    : prediction?.predictedNextState === "stop-And-Remain"
+      ? "적색 전환"
+      : null;
 
   return (
     <div className="rounded-2xl border border-border/20 bg-muted/30 p-4" role="status" aria-live="polite">
@@ -74,6 +81,15 @@ function SignalInterpretation({ signals, viewMode }: { signals: TrafficSignal[];
           </div>
           <p className="mt-1 text-base font-extrabold tracking-tight text-foreground">{interpretation.title}</p>
           <p className="mt-1 text-xs font-medium leading-5 text-muted-foreground">{interpretation.detail}</p>
+          {prediction?.available && predictedLabel && prediction.predictedChangeInSeconds !== undefined && (
+            <div className="mt-3 rounded-xl border border-border/20 bg-background/70 px-3 py-2">
+              <p className="text-[11px] font-bold text-foreground">다음 신호 <span className="text-muted-foreground">예상</span></p>
+              <p className="mt-0.5 text-xs font-semibold text-muted-foreground">
+                약 {prediction.predictedChangeInSeconds}초 후 {predictedLabel}
+              </p>
+              <p className="mt-1 text-[10px] font-medium text-muted-foreground/70">현재 단계와 잔여시간을 기준으로 한 전환 예상입니다.</p>
+            </div>
+          )}
           <p className="mt-2 text-[11px] font-medium text-muted-foreground/80">
             {MOVEMENT_LABELS_KO[preferred.movement]} · {DIRECTION_LABELS_KO[preferred.direction]}
           </p>
