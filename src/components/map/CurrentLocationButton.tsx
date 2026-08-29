@@ -21,6 +21,7 @@ const ERROR_TITLES: Record<LocationError, string> = {
   position_unavailable: "현재 위치를 가져올 수 없습니다",
   timeout: "위치 요청이 시간 초과되었습니다",
   unsupported: "이 브라우저는 위치 기능을 지원하지 않습니다",
+  nearest_lookup_failed: "주변 교차로를 찾을 수 없습니다",
 };
 
 export function CurrentLocationButton({ onLocate, loading, error, className }: CurrentLocationButtonProps) {
