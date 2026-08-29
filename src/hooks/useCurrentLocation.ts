@@ -12,19 +12,8 @@ export type LocationError =
   | "unsupported"
   | "nearest_lookup_failed";
 
-export interface GeoCoords {
-  lat: number;
-  lng: number;
-}
-
-export interface NearestIntersection {
-  crsrdId: string;
-  crsrdNm: string;
-  lat: number;
-  lng: number;
-  distanceMeters: number;
-}
-
+export interface GeoCoords { lat: number; lng: number; }
+export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; }
 export interface UseCurrentLocationResult {
   getLocation: () => void;
   loading: boolean;
@@ -86,13 +75,17 @@ export function useCurrentLocation(): UseCurrentLocationResult {
     nearestRequestRef.current?.abort();
     const controller = new AbortController();
     nearestRequestRef.current = controller;
+
     void findNearestIntersection(coords, controller.signal)
       .then((nearest) => {
-        if (!controller.signal.aborted) setNearestIntersection(nearest);
+        if (controller.signal.aborted) return;
+        // Clear stale results when the user is outside the supported search radius.
+        setNearestIntersection(nearest);
       })
       .catch((requestError) => {
         if (!controller.signal.aborted) {
           console.warn("[SignalNow] nearest intersection lookup failed", requestError);
+          setNearestIntersection(null);
           setError("nearest_lookup_failed");
         }
       });
@@ -115,6 +108,7 @@ export function useCurrentLocation(): UseCurrentLocationResult {
 
     setLoading(true);
     setError(null);
+    setNearestIntersection(null);
 
     const handleSuccess = (pos: GeolocationPosition) => {
       const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -126,6 +120,7 @@ export function useCurrentLocation(): UseCurrentLocationResult {
 
     const handleError = (err: GeolocationPositionError) => {
       setLoading(false);
+      setNearestIntersection(null);
       if (err.code === 1) setError("permission_denied");
       else if (err.code === 2) setError("position_unavailable");
       else if (err.code === 3) setError("timeout");
