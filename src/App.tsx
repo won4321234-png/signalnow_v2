@@ -233,15 +233,18 @@ function AppInner() {
   const handleSelectIntersection = useCallback((intersectionId: string) => { setSelectedId(intersectionId); setSheetOpen(true); recordRecent(intersectionId); }, [recordRecent]);
   const handleAutoIntersectionChange = useCallback((nearest: NearestIntersection | null) => {
     if (!driveMode || !nearest) return;
+    setDriveHistory((previous) => {
+      const lastId = previous[previous.length - 1]?.id;
+      if (lastId === nearest.crsrdId) return previous;
+      if (previous.some((item) => item.id === nearest.crsrdId)) return previous;
+      const next = [...previous, { id: nearest.crsrdId, name: nearest.crsrdNm || "교차로" }];
+      return next.slice(-8);
+    });
     setAutoNearestIntersection(nearest);
     setSelectedId(nearest.crsrdId);
     setSheetOpen(false);
     recordRecent(nearest.crsrdId);
-    setDriveHistory((previous) => {
-      if (previous[previous.length - 1]?.id === nearest.crsrdId) return previous;
-      const next = [...previous, { id: nearest.crsrdId, name: nearest.crsrdNm || "교차로" }];
-      return next.slice(-8);
-    });
+
     setIntersections((previous) => {
       if (previous.some((item) => item.crsrdId === nearest.crsrdId)) return previous;
       return [
