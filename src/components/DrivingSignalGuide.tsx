@@ -1,15 +1,23 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Gauge, LocateFixed, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Search, Volume2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MOVEMENT_LABELS_KO, PHASE_LABELS, SIGNAL_TEXT_CLASS, phaseColor, type SignalColor } from "@/lib/signal";
+import { MOVEMENT_LABELS_KO, PHASE_LABELS, phaseColor, type SignalColor } from "@/lib/signal";
 import type { Intersection, MovementType, TrafficSignal } from "@/types/traffic";
 
 const MOVEMENT_ORDER: MovementType[] = ["Straight", "Left Turn", "Right Turn", "U Turn", "Bus", "Bicycle"];
 const MOVEMENT_ICON: Record<MovementType, typeof ArrowUp> = {
-  Straight: ArrowUp, "Left Turn": ArrowLeft, "Right Turn": ArrowRight, "U Turn": ArrowDown,
-  Pedestrian: Gauge, Bus: Gauge, Bicycle: Gauge,
+  Straight: ArrowUp,
+  "Left Turn": ArrowLeft,
+  "Right Turn": ArrowRight,
+  "U Turn": ArrowDown,
+  Pedestrian: ArrowUp,
+  Bus: ArrowUp,
+  Bicycle: ArrowUp,
 };
 
-export interface DriveHistoryItem { id: string; name: string; }
+export interface DriveHistoryItem {
+  id: string;
+  name: string;
+}
 
 interface DrivingSignalGuideProps {
   intersection: Intersection | null;
@@ -22,89 +30,175 @@ interface DrivingSignalGuideProps {
 }
 
 function vehicleSignals(signals: TrafficSignal[]): TrafficSignal[] {
-  return signals.filter((signal) => signal.movement !== "Pedestrian").slice().sort((a, b) => {
-    const direction = a.direction.localeCompare(b.direction);
-    return direction !== 0 ? direction : MOVEMENT_ORDER.indexOf(a.movement) - MOVEMENT_ORDER.indexOf(b.movement);
-  });
+  return signals
+    .filter((signal) => signal.movement !== "Pedestrian")
+    .slice()
+    .sort((a, b) => {
+      const direction = a.direction.localeCompare(b.direction);
+      if (direction !== 0) return direction;
+      return MOVEMENT_ORDER.indexOf(a.movement) - MOVEMENT_ORDER.indexOf(b.movement);
+    });
 }
 
-function SignalBlock({ signal }: { signal: TrafficSignal }) {
-  const color: SignalColor = phaseColor(signal.state);
-  const Icon = MOVEMENT_ICON[signal.movement];
+function signalTone(signal: TrafficSignal): SignalColor {
+  return phaseColor(signal.state);
+}
+
+function toneClass(color: SignalColor): string {
+  if (color === "green") return "text-[#3fbe52]";
+  if (color === "yellow") return "text-[#f5ad16]";
+  return "text-[#ff3535]";
+}
+
+function SignalRail({ signal }: { signal: TrafficSignal }) {
+  const color = signalTone(signal);
   const seconds = signal.remainingSeconds === undefined ? null : Math.max(0, Math.floor(signal.remainingSeconds));
+  const Icon = MOVEMENT_ICON[signal.movement];
+
   return (
-    <div className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.045] px-3.5 py-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
-      <div className="flex items-center gap-2.5">
-        <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06]", SIGNAL_TEXT_CLASS[color])}><Icon className="size-4.5" strokeWidth={2.5} /></span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-black text-white">{MOVEMENT_LABELS_KO[signal.movement]}</p>
-          <p className="mt-0.5 text-[10px] font-semibold text-white/45">{signal.direction} · {PHASE_LABELS[signal.state]}</p>
-        </div>
-        <div className="flex shrink-0 items-baseline gap-1"><span className={cn("text-2xl font-black tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>{seconds ?? "—"}</span>{seconds !== null && <span className="text-[10px] font-bold text-white/40">초</span>}</div>
+    <div className="relative flex min-w-[112px] flex-1 flex-col items-center">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black text-white/70">
+        <Icon className="size-4" strokeWidth={2.6} />
+        <span>{MOVEMENT_LABELS_KO[signal.movement]}</span>
       </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.08]">
-        <div className={cn("h-full rounded-full transition-all duration-700 ease-linear", color === "green" && "bg-signal-green", color === "yellow" && "bg-signal-yellow", color === "red" && "bg-signal-red")} style={{ width: seconds === null ? "0%" : `${Math.min(100, Math.max(3, (seconds / Math.max(1, signal.cycleSeconds)) * 100))}%` }} />
+      <div className="relative h-[320px] w-[78px] overflow-hidden rounded-[8px] border border-white/15 bg-[#10191a] shadow-[0_0_0_1px_rgba(0,0,0,.45),0_18px_40px_rgba(0,0,0,.28)]">
+        <div className="absolute inset-[7px] flex flex-col overflow-hidden rounded-[3px] bg-[#15221e]">
+          <div className="flex-[0.22] border-b border-black/20 bg-[#ff3535]" />
+          <div className="h-[15%] border-b border-black/20 bg-[#f5ad16]" />
+          <div className={cn("flex-1", color === "green" ? "bg-[#3fbe52]" : "bg-[#245c31]")} />
+          {color === "green" && <div className="absolute inset-x-[7px] bottom-[18%] h-[8px] rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,.5)]" />}
+          {color === "yellow" && <div className="absolute inset-x-[7px] top-[52%] h-[8px] rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,.5)]" />}
+          {color === "red" && <div className="absolute inset-x-[7px] top-[22%] h-[8px] rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,.5)]" />}
+        </div>
+      </div>
+      <div className={cn("mt-2 flex items-baseline gap-1", toneClass(color))}>
+        <span className="text-2xl font-black tabular-nums">{seconds ?? "—"}</span>
+        {seconds !== null && <span className="text-[10px] font-bold text-white/45">초</span>}
+      </div>
+      <p className="mt-0.5 max-w-[112px] truncate text-center text-[9px] font-bold text-white/35">
+        {signal.direction} · {PHASE_LABELS[signal.state]}
+      </p>
+    </div>
+  );
+}
+
+function RouteRail({ history, currentId }: { history: DriveHistoryItem[]; currentId?: string }) {
+  const items = history.slice(-6);
+  return (
+    <div className="relative h-full min-h-[420px] w-[112px] shrink-0">
+      <div className="absolute left-[47px] top-8 bottom-8 w-[2px] bg-white/15" />
+      <div className="flex h-full flex-col justify-between py-8">
+        {items.map((item, index) => {
+          const active = item.id === currentId;
+          return (
+            <div key={item.id + "-" + index} className="relative flex min-h-[48px] items-center">
+              <div className={cn(
+                "absolute left-[37px] z-10 size-[20px] rounded-full border-[3px]",
+                active ? "border-[#54d6df] bg-[#54d6df] shadow-[0_0_16px_rgba(84,214,223,.45)]" : "border-white/25 bg-[#081012]"
+              )} />
+              <div className="absolute left-[65px] min-w-[145px]">
+                <p className={cn("truncate text-[13px] font-black", active ? "text-white" : "text-white/35")}>{item.name}</p>
+                {active && <p className="mt-0.5 text-[9px] font-bold text-[#54d6df]">현재 위치</p>}
+              </div>
+            </div>
+          );
+        })}
+        {items.length === 0 && <div className="absolute left-[24px] top-1/2 size-[46px] -translate-y-1/2 rounded-full border-[4px] border-[#54d6df]/70 bg-[#071012] shadow-[0_0_20px_rgba(84,214,223,.25)]" />}
       </div>
     </div>
   );
 }
 
-function Timeline({ history, currentId }: { history: DriveHistoryItem[]; currentId?: string }) {
-  const visible = history.slice(-5);
-  return <div className="relative pl-7">
-    <div className="absolute left-[7px] top-2 bottom-2 w-px bg-white/10" />
-    <div className="flex flex-col gap-4">
-      {visible.map((item, index) => {
-        const current = item.id === currentId;
-        return <div key={`${item.id}-${index}`} className="relative">
-          <span className={cn("absolute -left-7 top-1.5 size-[15px] rounded-full border-2", current ? "border-cyan-300 bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,.55)]" : "border-white/25 bg-[#071016]")} />
-          <p className={cn("truncate text-xs font-bold", current ? "text-white" : "text-white/35")}>{item.name}</p>
-          {current && <p className="mt-0.5 text-[9px] font-semibold text-cyan-300/80">현재 안내 중</p>}
-        </div>;
-      })}
-    </div>
-  </div>;
-}
-
-export function DrivingSignalGuide({ intersection, signals, loading = false, distanceMeters, history = [], onExit, onOpenDetails }: DrivingSignalGuideProps) {
+export function DrivingSignalGuide({
+  intersection,
+  signals,
+  loading = false,
+  distanceMeters,
+  history = [],
+  onExit,
+  onOpenDetails,
+}: DrivingSignalGuideProps) {
   const currentSignals = vehicleSignals(signals);
-  const distance = distanceMeters !== null && distanceMeters !== undefined && Number.isFinite(distanceMeters) ? Math.round(distanceMeters) : null;
+  const distance = distanceMeters !== null && distanceMeters !== undefined && Number.isFinite(distanceMeters)
+    ? Math.round(distanceMeters)
+    : null;
+  const leadSeconds = currentSignals[0]?.remainingSeconds === undefined
+    ? null
+    : Math.max(0, Math.floor(currentSignals[0].remainingSeconds));
+
   return (
-    <div className="pointer-events-auto absolute inset-0 z-[55] flex items-end justify-center bg-[#02070a]/55 backdrop-blur-[2px] lg:items-start lg:justify-end lg:bg-transparent lg:backdrop-blur-0">
-      <section className="relative flex max-h-[92svh] w-full flex-col overflow-hidden rounded-t-[2rem] border border-white/10 bg-[#071016]/[0.97] text-white shadow-2xl lg:m-4 lg:mt-20 lg:max-h-[calc(100svh-6rem)] lg:w-[min(470px,calc(100vw-2rem))] lg:rounded-[2rem]">
-        <header className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-cyan-300/10 text-cyan-300"><LocateFixed className="size-4.5" /></div>
-            <div className="min-w-0"><p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/35">SIGNALNOW DRIVE</p><p className="truncate text-sm font-black text-white">주행 신호 안내</p></div>
-          </div>
-          <button type="button" aria-label="자동 운행 안내 종료" onClick={onExit} className="flex size-9 shrink-0 items-center justify-center rounded-full text-white/50 hover:bg-white/10 hover:text-white"><X className="size-4.5" /></button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="px-5 pt-5">
-            <div className="flex items-end justify-between gap-4">
-              <div className="min-w-0"><p className="text-[10px] font-bold text-cyan-300/80">현재 교차로</p><h2 className="mt-1 truncate text-[clamp(1.35rem,5vw,2rem)] font-black tracking-tight text-white">{intersection?.crsrdNm ?? "교차로 찾는 중…"}</h2></div>
-              <div className="shrink-0 text-right"><p className="text-[9px] font-bold text-white/35">거리</p><p className="mt-0.5 text-lg font-black tabular-nums text-white">{distance === null ? "—" : `${distance}m`}</p></div>
-            </div>
-            <p className="mt-1.5 text-[11px] font-semibold text-white/40">교차로를 통과하면 GPS 기준으로 다음 교차로 신호로 자동 전환됩니다.</p>
-          </div>
-          <div className="mt-5 grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] gap-5 px-5">
-            <div className="min-w-0">
-              <div className="mb-3 flex items-center gap-2"><span className="size-1.5 rounded-full bg-cyan-300" /><p className="text-[10px] font-black uppercase tracking-[0.12em] text-white/45">이동 순서</p></div>
-              {history.length > 0 ? <Timeline history={history} currentId={intersection?.crsrdId} /> : <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3 text-[10px] font-semibold leading-5 text-white/35">현재 위치를 기준으로 교차로를 자동 탐색하고 있습니다.</div>}
-            </div>
-            <div className="min-w-0">
-              <div className="mb-3 flex items-center justify-between gap-2"><p className="text-[10px] font-black uppercase tracking-[0.12em] text-white/45">실시간 신호</p><span className="text-[9px] font-bold text-white/30">{currentSignals.length}개</span></div>
-              {loading ? <div className="rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-8 text-center"><p className="text-sm font-black text-white">신호 데이터 불러오는 중</p><p className="mt-1 text-[10px] font-semibold leading-4 text-white/35">데이터가 들어오면 직진·좌회전 등 이용 가능한 모든 차량 신호를 표시합니다.</p></div> : currentSignals.length === 0 ? <div className="rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-8 text-center"><p className="text-sm font-black text-white">현재 교차로의 차량 신호 데이터가 없습니다.</p><p className="mt-1 text-[10px] font-semibold leading-4 text-white/35">다음 교차로로 이동하면 자동으로 갱신됩니다.</p></div> : <div className="grid gap-2">{currentSignals.map((signal) => <SignalBlock key={`${signal.direction}-${signal.movement}`} signal={signal} />)}</div>}
-            </div>
-          </div>
-          <div className="px-5 pb-5 pt-5">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-black text-white/35">자동 전환</p><p className="mt-0.5 text-xs font-extrabold text-white">핀을 누르지 않아도 다음 교차로가 표시됩니다.</p></div><span className="shrink-0 rounded-full bg-cyan-300/10 px-2.5 py-1 text-[9px] font-black text-cyan-300">GPS ON</span></div></div>
-            <button type="button" onClick={onOpenDetails} className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] py-3 text-[11px] font-bold text-white/45 hover:bg-white/[0.07] hover:text-white">기존 교차로 상세 화면 열기 <ChevronRight className="size-3.5" /></button>
-            <p className="mt-3 text-[9px] font-medium leading-4 text-white/25">자동 안내는 위치 정확도와 신호 데이터 상태에 따라 달라질 수 있습니다. 실제 운전 중에는 현장 교통신호를 우선하세요.</p>
-          </div>
+    <div className="pointer-events-auto absolute inset-0 z-[90] overflow-hidden bg-[#05090b] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_48%,rgba(42,75,66,.16),transparent_38%)]" />
+      <header className="relative z-10 flex h-[78px] items-center justify-between px-5 sm:px-8">
+        <button type="button" aria-label="자동 안내 종료" onClick={onExit} className="flex size-12 items-center justify-center rounded-full text-white transition hover:bg-white/10">
+          <span className="text-[42px] font-extralight leading-none">‹</span>
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-white/10 bg-white/[0.045] px-4 py-2 text-[11px] font-black text-white/55">화면</span>
+          <span className="rounded-full border border-[#2f737a]/50 bg-[#0b2529] px-4 py-2 text-[11px] font-black text-[#65dce4]">● GPS ±8m · 자동</span>
+          <button type="button" aria-label="교차로 상세 검색" onClick={onOpenDetails} className="flex size-10 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10">
+            <Search className="size-7" strokeWidth={2} />
+          </button>
         </div>
-      </section>
+      </header>
+
+      <main className="relative z-10 flex h-[calc(100%-78px)] min-h-0 overflow-hidden px-3 pb-4 sm:px-6 lg:px-10">
+        <RouteRail history={history} currentId={intersection?.crsrdId} />
+
+        <section className="min-w-0 flex-1 overflow-y-auto pr-1">
+          <div className="mx-auto max-w-[980px]">
+            <div className="flex items-end justify-between gap-4 pt-6 sm:pt-8">
+              <div className="min-w-0">
+                <p className="mb-1 text-[10px] font-bold text-white/35">현재 교차로</p>
+                <h1 className="truncate text-[clamp(1.5rem,4vw,2.45rem)] font-black tracking-tight">{intersection?.crsrdNm ?? "교차로 찾는 중…"}</h1>
+                <p className="mt-1 truncate text-xs font-semibold text-white/35">{distance === null ? "GPS로 다음 교차로를 찾는 중" : distance + " m"}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-[10px] font-bold text-white/30">다음 신호까지</p>
+                <p className="mt-1 text-[clamp(3rem,9vw,5.8rem)] font-light leading-none tabular-nums">{leadSeconds ?? "—"}<span className="ml-2 text-[clamp(1rem,2vw,1.5rem)] font-normal text-white/50">초</span></p>
+              </div>
+            </div>
+
+            <div className="mt-7 border-t border-white/10 pt-5">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[11px] font-black tracking-[0.12em] text-white/45">차량 신호</p>
+                <span className="text-[10px] font-bold text-white/25">{currentSignals.length}개 데이터</span>
+              </div>
+
+              {loading ? (
+                <div className="flex min-h-[390px] items-center justify-center text-center">
+                  <div>
+                    <div className="mx-auto mb-3 size-7 animate-spin rounded-full border-2 border-white/10 border-t-[#54d6df]" />
+                    <p className="text-sm font-black">신호 데이터 불러오는 중</p>
+                    <p className="mt-1 text-[10px] font-semibold text-white/35">현재 위치의 교차로 신호를 확인하고 있습니다.</p>
+                  </div>
+                </div>
+              ) : currentSignals.length === 0 ? (
+                <div className="flex min-h-[390px] items-center justify-center text-center">
+                  <div>
+                    <p className="text-lg font-black">표시할 차량 신호가 없습니다.</p>
+                    <p className="mt-1 text-xs font-semibold text-white/35">신호 데이터가 있는 다음 교차로를 자동으로 탐색합니다.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto pb-4">
+                  <div className="flex min-w-max gap-5 pr-8 sm:gap-8">
+                    {currentSignals.map((signal) => <SignalRail key={signal.direction + "-" + signal.movement} signal={signal} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center justify-center gap-5 border-t border-white/[0.06] py-5 text-white/30">
+              <div className="flex items-center gap-2 text-xs font-bold"><Volume2 className="size-4" /> 신호 변경 알림</div>
+              <span className="text-[10px]">•</span>
+              <span className="text-xs font-bold">핀 선택 없이 자동 전환</span>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
+
 export default DrivingSignalGuide;
