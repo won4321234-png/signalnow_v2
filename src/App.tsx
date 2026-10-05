@@ -233,13 +233,9 @@ function AppInner() {
   const handleSelectIntersection = useCallback((intersectionId: string) => { setSelectedId(intersectionId); setSheetOpen(true); recordRecent(intersectionId); }, [recordRecent]);
   const handleAutoIntersectionChange = useCallback((nearest: NearestIntersection | null) => {
     if (!driveMode || !nearest) return;
-    setDriveHistory((previous) => {
-      const lastId = previous[previous.length - 1]?.id;
-      if (lastId === nearest.crsrdId) return previous;
-      if (previous.some((item) => item.id === nearest.crsrdId)) return previous;
-      const next = [...previous, { id: nearest.crsrdId, name: nearest.crsrdNm || "교차로" }];
-      return next.slice(-8);
-    });
+    if (driveHistory[driveHistory.length - 1]?.id === nearest.crsrdId) return;
+    if (driveHistory.some((item) => item.id === nearest.crsrdId)) return;
+    setDriveHistory((previous) => [...previous, { id: nearest.crsrdId, name: nearest.crsrdNm || "교차로" }].slice(-8));
     setAutoNearestIntersection(nearest);
     setSelectedId(nearest.crsrdId);
     setSheetOpen(false);
@@ -259,7 +255,7 @@ function AppInner() {
         },
       ];
     });
-  }, [driveMode, recordRecent]);
+  }, [driveMode, driveHistory, recordRecent]);
   const handleDriveModeExit = useCallback(() => {
     setDriveMode(false);
     setAutoNearestIntersection(null);
