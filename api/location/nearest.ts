@@ -33,23 +33,46 @@ async function fetchPage(serviceKey: string, stdgCd: string, pageNo: number): Pr
 async function getIntersections(serviceKey: string, stdgCd: string): Promise<IntersectionRecord[]> {
   const cached = intersectionCache.get(stdgCd);
   if (cached && cached.expiresAt > Date.now()) return cached.items;
+
   const existing = inFlightCache.get(stdgCd);
   if (existing) return existing;
+
   const request = (async () => {
-    const all: IntersectionRecord[] = [];
-    let totalPages = 1;
-    for (let pageNo = 1; pageNo <= Math.min(totalPages, MAX_PAGES); pageNo += 1) {
-      const page = await fetchPage(serviceKey, stdgCd, pageNo);
-      if (page.totalCount > 0) totalPages = Math.ceil(page.totalCount / PAGE_SIZE);
-      all.push(...page.items);
-      if (page.items.length < PAGE_SIZE && totalPages <= pageNo) break;
+    const firstPage = await fetchPage(serviceKey, stdgCd, 1);
+    const all: IntersectionRecord[] = [...firstPage.items];
+    const totalPages = Math.min(
+      MAX_PAGES,
+      Math.max(1, firstPage.totalCount > 0 ? Math.ceil(firstPage.totalCount / PAGE_SIZE) : 1),
+    );
+
+    const concurrency = 8;
+    for (let batchStart = 2; batchStart <= totalPages; batchStart += concurrency) {
+      const pageNumbers = Array.from(
+        { length: Math.min(concurrency, totalPages - batchStart + 1) },
+        (_, index) => batchStart + index,
+      );
+      const pages = await Promise.all(pageNumbers.map((pageNo) => fetchPage(serviceKey, stdgCd, pageNo)));
+      for (const page of pages) all.push(...page.items);
     }
-    intersectionCache.set(stdgCd, { expiresAt: Date.now() + DATA_CACHE_TTL_MS, items: all });
-    return all;
+
+    const unique = new Map<string, IntersectionRecord>();
+    for (const item of all) {
+      const id = String(item.crsrdId ?? "").trim();
+      if (id) unique.set(id, item);
+    }
+    const items = [...unique.values()];
+    intersectionCache.set(stdgCd, { expiresAt: Date.now() + DATA_CACHE_TTL_MS, items });
+    return items;
   })();
+
   inFlightCache.set(stdgCd, request);
-  try { return await request; } finally { inFlightCache.delete(stdgCd); }
+  try {
+    return await request;
+  } finally {
+    inFlightCache.delete(stdgCd);
+  }
 }
+
 
 export default async function handler(req: Request, res: Response) {
   if (req.method && req.method !== "GET") { res.setHeader("Allow", "GET"); return jsonResponse(res, 405, { error: "Method not allowed" }); }
