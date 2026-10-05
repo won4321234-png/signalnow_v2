@@ -11,7 +11,7 @@ interface ApiHeader { resultCode?: string; resultMsg?: string; }
 interface ApiBody { totalCount?: number | string; pageNo?: number | string; numOfRows?: number | string; items?: { item?: Record<string, unknown> | Record<string, unknown>[] }; }
 export interface TrafficApiDebugMeta { apiStatus: string; via: "direct" | "proxy"; responseReceived: boolean; itemCount: number; sampleIds: string[]; }
 export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; debug: TrafficApiDebugMeta; }
-export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; basePath?: string; }
+export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; crsrdId?: string; basePath?: string; }
 
 const TRAFFIC_API_TIMEOUT_MS = 8000;
 function debugEnabled() { return new URLSearchParams(window.location.search).get("debug") === "1"; }
@@ -31,9 +31,9 @@ export class TrafficApiRequestError extends Error {
   }
 }
 
-async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
+async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>(options: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {\n  const { path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH } = options;
   const normalizedServiceKey = normalizeServiceKey(serviceKey);
-  const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); directParams.set("serviceKey", normalizedServiceKey);
+  const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); if (options.crsrdId) directParams.set("crsrdId", options.crsrdId); directParams.set("serviceKey", normalizedServiceKey);
   const proxyParams = new URLSearchParams(directParams);
   const directUrl = `${TRAFFIC_API_DIRECT_BASE_URL}${path}?${directParams.toString()}`;
   const proxyUrl = new URL(`${basePath}${path}`, window.location.origin); proxyUrl.search = proxyParams.toString();
