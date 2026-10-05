@@ -42,7 +42,12 @@ function clientKey(req: Request): string {
 function allowRequest(req: Request): boolean {
   const now = Date.now();
   const key = clientKey(req);
-  if (rateBuckets.size > 5000) {\n    for (const [bucketKey, bucket] of rateBuckets) {\n      if (now - bucket.startedAt >= RATE_LIMIT_WINDOW_MS) rateBuckets.delete(bucketKey);\n    }\n  }\n  const current = rateBuckets.get(key);
+  if (rateBuckets.size > 5000) {
+    for (const [bucketKey, bucket] of rateBuckets) {
+      if (now - bucket.startedAt >= RATE_LIMIT_WINDOW_MS) rateBuckets.delete(bucketKey);
+    }
+  }
+  const current = rateBuckets.get(key);
   if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
     rateBuckets.set(key, { startedAt: now, count: 1 });
     return true;
@@ -83,7 +88,9 @@ export default async function handler(req: Request, res: Response) {
   }
 
   const pageNo = numberParam(req.query.pageNo, 1);
-  const numOfRows = numberParam(req.query.numOfRows, 100);\n  const crsrdId = stringParam(req.query.crsrdId);\n  if (crsrdId.length > 80) return jsonResponse(res, 400, { error: "Invalid crsrdId" });
+  const numOfRows = numberParam(req.query.numOfRows, 100);
+  const crsrdId = stringParam(req.query.crsrdId);
+  if (crsrdId.length > 80) return jsonResponse(res, 400, { error: "Invalid crsrdId" });
   if (pageNo > MAX_PAGE || numOfRows > MAX_ROWS) {
     return jsonResponse(res, 400, { error: "Invalid pagination parameters" });
   }
@@ -97,7 +104,8 @@ export default async function handler(req: Request, res: Response) {
   url.searchParams.set("pageNo", String(pageNo));
   url.searchParams.set("numOfRows", String(numOfRows));
   url.searchParams.set("type", "JSON");
-  url.searchParams.set("stdgCd", stdgCd);\n  if (crsrdId) url.searchParams.set("crsrdId", crsrdId);
+  url.searchParams.set("stdgCd", stdgCd);
+  if (crsrdId) url.searchParams.set("crsrdId", crsrdId);
   url.searchParams.set("serviceKey", serviceKey);
 
   const controller = new AbortController();
