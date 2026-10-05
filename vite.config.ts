@@ -18,13 +18,7 @@ export default defineConfig({
       "/api/traffic": {
         target: "https://apis.data.go.kr/B551982/rti",
         changeOrigin: true,
-        rewrite: (path) => {
-          const key = process.env.TRAFFIC_API_SERVICE_KEY || process.env.TRAFFIC_API_KEY || process.env.VITE_TRAFFIC_API_KEY || process.env.VITE_DATA_API_SERVICE_KEY || "";
-          const url = new URL(path, "http://localhost");
-          url.pathname = url.pathname.replace(/^\\/api\\/traffic/, "");
-          if (key) url.searchParams.set("serviceKey", key);
-          return url.pathname + url.search;
-        },
+        rewrite: (path) => path.replace(/^\/api\/traffic/, ""),
       },
     },
   },
