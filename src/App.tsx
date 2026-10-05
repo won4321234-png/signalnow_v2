@@ -238,6 +238,7 @@ function AppInner() {
     if (driveHistory.some((item) => item.id === nearest.crsrdId)) return;
     setDriveHistory((previous) => [...previous, { id: nearest.crsrdId, name: nearest.crsrdNm || "교차로" }].slice(-8));
     setAutoNearestIntersection(nearest);
+    setDriveSpeedMps(nearest.speedMps);
     setSelectedId(nearest.crsrdId);
     setSheetOpen(false);
     recordRecent(nearest.crsrdId);
