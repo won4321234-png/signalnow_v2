@@ -25,6 +25,7 @@ function jsonResponse(res: Response, status: number, body: unknown): void {
 }
 
 function stringParam(value: unknown): string {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string").join("/").trim();
   return typeof value === "string" ? value.trim() : "";
 }
 
