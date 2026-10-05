@@ -52,7 +52,8 @@ async function findNearestIntersection(coords: GeoCoords, signal: AbortSignal): 
     crsrdNm: String(payload.intersection.crsrdNm ?? ""),
     lat,
     lng,
-    distanceMeters: Number(payload.distanceMeters ?? distanceMeters(coords, { lat, lng, accuracy: coords.accuracy, heading: coords.heading })),
+    distanceMeters: Number(payload.distanceMeters ?? distanceMeters(coords, { lat, lng, accuracy: coords.accuracy, heading: coords.heading, speedMps: coords.speedMps })),
+    speedMps: coords.speedMps,
   };
 }
 
