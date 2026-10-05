@@ -42,7 +42,7 @@ function clientKey(req: Request): string {
 function allowRequest(req: Request): boolean {
   const now = Date.now();
   const key = clientKey(req);
-  const current = rateBuckets.get(key);
+  if (rateBuckets.size > 5000) {\n    for (const [bucketKey, bucket] of rateBuckets) {\n      if (now - bucket.startedAt >= RATE_LIMIT_WINDOW_MS) rateBuckets.delete(bucketKey);\n    }\n  }\n  const current = rateBuckets.get(key);
   if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
     rateBuckets.set(key, { startedAt: now, count: 1 });
     return true;
