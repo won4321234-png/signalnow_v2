@@ -13,8 +13,8 @@ export type LocationError =
   | "nearest_lookup_failed"
   | "location_accuracy_low";
 
-export interface GeoCoords { lat: number; lng: number; accuracy: number; heading: number | null; speedMps: number | null; }
-export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; speedMps: number | null; }
+export interface GeoCoords { lat: number; lng: number; accuracy: number; heading: number | null; speedMps: number | null; accelerationMps2: number | null; }
+export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; speedMps: number | null; accelerationMps2: number | null; accuracy: number; }
 export interface UseCurrentLocationResult {
   getLocation: () => void;
   loading: boolean;
@@ -54,6 +54,8 @@ async function findNearestIntersection(coords: GeoCoords, signal: AbortSignal): 
     lng,
     distanceMeters: Number(payload.distanceMeters ?? distanceMeters(coords, { lat, lng, accuracy: coords.accuracy, heading: coords.heading, speedMps: coords.speedMps })),
     speedMps: coords.speedMps,
+    accelerationMps2: coords.accelerationMps2,
+    accuracy: coords.accuracy,
   };
 }
 
@@ -66,6 +68,7 @@ export function useCurrentLocation(): UseCurrentLocationResult {
   const nearestRequestRef = useRef<AbortController | null>(null);
   const lastNearestLookupAtRef = useRef(0);
   const lastNearestLookupLocationRef = useRef<GeoCoords | null>(null);
+  const previousSpeedSampleRef = useRef<{ speedMps: number; at: number } | null>(null);
 
   const lookupNearest = useCallback((coords: GeoCoords) => {
     const now = Date.now();
@@ -131,7 +134,18 @@ export function useCurrentLocation(): UseCurrentLocationResult {
         lng: pos.coords.longitude,
         accuracy: Number.isFinite(accuracy) ? accuracy : Number.POSITIVE_INFINITY,
         heading: Number.isFinite(pos.coords.heading ?? NaN) ? pos.coords.heading : null,
+        speedMps: Number.isFinite(pos.coords.speed ?? NaN) && (pos.coords.speed ?? 0) >= 0 ? pos.coords.speed : null,
+        accelerationMps2: null,
       };
+      if (coords.speedMps !== null) {
+        const now = Date.now();
+        const previous = previousSpeedSampleRef.current;
+        if (previous && now > previous.at) {
+          const dt = (now - previous.at) / 1000;
+          if (dt > 0.2 && dt < 15) coords.accelerationMps2 = (coords.speedMps - previous.speedMps) / dt;
+        }
+        previousSpeedSampleRef.current = { speedMps: coords.speedMps, at: now };
+      }
       setLocation(coords);
       setLoading(false);
       setError(coords.accuracy <= MAX_USABLE_ACCURACY_METERS ? null : "location_accuracy_low");
@@ -151,6 +165,7 @@ export function useCurrentLocation(): UseCurrentLocationResult {
     stopWatching();
     lastNearestLookupAtRef.current = 0;
     lastNearestLookupLocationRef.current = null;
+    previousSpeedSampleRef.current = null;
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
       timeout: 10_000,
       maximumAge: 5_000,
