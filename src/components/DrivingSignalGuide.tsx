@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ChevronRight, Gauge, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DIRECTION_LABELS_KO, MOVEMENT_LABELS_KO, PHASE_LABELS, SIGNAL_SOFT_BG_CLASS, SIGNAL_TEXT_CLASS, phaseColor, type SignalColor } from "@/lib/signal";
+import { DIRECTION_LABELS_KO, MOVEMENT_LABELS_KO, PHASE_LABELS, SIGNAL_TEXT_CLASS, phaseColor, type SignalColor } from "@/lib/signal";
 import type { Intersection, MovementType, TrafficSignal } from "@/types/traffic";
 
 const MOVEMENT_ORDER: MovementType[] = ["Straight", "Left Turn", "Right Turn", "U Turn", "Bus", "Bicycle"];
