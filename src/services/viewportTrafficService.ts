@@ -92,6 +92,25 @@ async function findSignalRecord(
   const targetId = normalizeId(crsrdId);
   const cachedPageNo = signalMatchPageCache.get(targetId);
 
+  if (!forceRefresh || !cachedPageNo) {
+    try {
+      const targetedPage = await fetchTrafficSignalInfo({
+        serviceKey: getServiceKey(),
+        stdgCd: getActiveRegion().stdgCd,
+        pageNo: 1,
+        numOfRows: SIGNAL_PAGE_ROWS,
+        crsrdId: targetId,
+      });
+      const targetedIndex = targetedPage.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+      if (targetedIndex >= 0) {
+        signalMatchPageCache.set(targetId, 1);
+        return { record: targetedPage.items[targetedIndex], pageNo: 1, page: targetedPage };
+      }
+    } catch {
+      // Fall back to the paginated search below when the provider does not support filtering.
+    }
+  }
+
   if (forceRefresh && cachedPageNo) {
     const page = await fetchSignalPage(cachedPageNo, true);
     const index = page.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
