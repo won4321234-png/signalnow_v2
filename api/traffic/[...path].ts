@@ -83,7 +83,7 @@ export default async function handler(req: Request, res: Response) {
   }
 
   const pageNo = numberParam(req.query.pageNo, 1);
-  const numOfRows = numberParam(req.query.numOfRows, 100);
+  const numOfRows = numberParam(req.query.numOfRows, 100);\n  const crsrdId = stringParam(req.query.crsrdId);\n  if (crsrdId.length > 80) return jsonResponse(res, 400, { error: "Invalid crsrdId" });
   if (pageNo > MAX_PAGE || numOfRows > MAX_ROWS) {
     return jsonResponse(res, 400, { error: "Invalid pagination parameters" });
   }
@@ -97,7 +97,7 @@ export default async function handler(req: Request, res: Response) {
   url.searchParams.set("pageNo", String(pageNo));
   url.searchParams.set("numOfRows", String(numOfRows));
   url.searchParams.set("type", "JSON");
-  url.searchParams.set("stdgCd", stdgCd);
+  url.searchParams.set("stdgCd", stdgCd);\n  if (crsrdId) url.searchParams.set("crsrdId", crsrdId);
   url.searchParams.set("serviceKey", serviceKey);
 
   const controller = new AbortController();
