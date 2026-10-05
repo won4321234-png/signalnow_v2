@@ -107,31 +107,6 @@ async function loadIntersectionPage(pageNo: number): Promise<Intersection[]> {
 }
 
 export function configureTrafficRegion(regionId: TrafficRegionId): void {
-  if (activeRegionId === regionId) return;
-  activeRegionId = regionId;
-  regionGeneration += 1;
-  pageCache.clear();
-  pageTotalCache.clear();
-  intersectionCache.clear();
-  viewportCache.clear();
-  viewportPromiseCache.clear();
-  signalCache.clear();
-  signalPromiseCache.clear();
-  signalPageCache.clear();
-  signalPagePromiseCache.clear();
-  signalMatchPageCache.clear();
-  signalTotalPages = 0;
-  debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd });
-}
-
-  if (activeRegionId === regionId) return;
-  activeRegionId = regionId;
-  regionGeneration += 1;
-  pageCache.clear();
-  intersectionCache.clear();
-  viewportCache.clear();
-  viewportPromiseCache.clear();
-  signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
 export function getTrafficRegion(): TrafficRegionId { return activeRegionId; }
 export async function loadIntersectionsForViewport(viewport: Viewport, options: IntersectionLoadOptions = {}): Promise<Intersection[]> {
   const isGroundTruthAdmin = window.location.pathname === "/admin/intersections" || window.location.pathname === "/intersection-editor";
