@@ -27,7 +27,7 @@ let nextPage = 1;
 const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 const debugLog = (message: string, data: Record<string, unknown>) => { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); };
 function getActiveRegion() { return TRAFFIC_REGIONS[activeRegionId]; }
-function getServiceKey(): string { return "server-proxy"; }
+function getServiceKey(): string {\n  // Production uses the same configured public service key for the browser-to-server\n  // fallback. The Vercel proxy may also have a server-only key; in that case the\n  // proxy ignores this value and uses its server environment variable.\n  const key = import.meta.env.VITE_TRAFFIC_API_KEY ?? import.meta.env.VITE_DATA_API_SERVICE_KEY;\n  return typeof key === "string" && key.trim() ? key.trim() : "server-proxy";\n}
 function toNumber(value: string | number | undefined): number { const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function toOptionalNumber(value: unknown): number | undefined { if (value === undefined || value === null || value === "") return undefined; const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed / 1000 : undefined; }
 function normalizeId(value: unknown): string { return String(value ?? "").trim(); }
