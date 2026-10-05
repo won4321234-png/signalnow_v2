@@ -13,8 +13,8 @@ export type LocationError =
   | "nearest_lookup_failed"
   | "location_accuracy_low";
 
-export interface GeoCoords { lat: number; lng: number; accuracy: number; heading: number | null; }
-export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; }
+export interface GeoCoords { lat: number; lng: number; accuracy: number; heading: number | null; speedMps: number | null; }
+export interface NearestIntersection { crsrdId: string; crsrdNm: string; lat: number; lng: number; distanceMeters: number; speedMps: number | null; }
 export interface UseCurrentLocationResult {
   getLocation: () => void;
   loading: boolean;
