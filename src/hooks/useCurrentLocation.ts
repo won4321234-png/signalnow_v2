@@ -23,8 +23,8 @@ export interface UseCurrentLocationResult {
   nearestIntersection: NearestIntersection | null;
 }
 
-const NEAREST_LOOKUP_INTERVAL_MS = 5000;
-const NEAREST_LOOKUP_MIN_MOVE_METERS = 25;
+const NEAREST_LOOKUP_INTERVAL_MS = 2500;
+const NEAREST_LOOKUP_MIN_MOVE_METERS = 12;
 const MAX_USABLE_ACCURACY_METERS = 150;
 
 function distanceMeters(a: GeoCoords, b: GeoCoords): number {
