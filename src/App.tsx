@@ -260,6 +260,7 @@ function AppInner() {
   const handleDriveModeExit = useCallback(() => {
     setDriveMode(false);
     setAutoNearestIntersection(null);
+    setDriveSpeedMps(null);
     setDriveHistory([]);
     setSelectedId(null);
     setSheetOpen(false);
@@ -268,6 +269,7 @@ function AppInner() {
     setViewMode("driver");
     setDriveHistory([]);
     setAutoNearestIntersection(null);
+    setDriveSpeedMps(null);
     setSelectedId(null);
     setDriveMode(true);
     setDriveModeChooserOpen(false);
