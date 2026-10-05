@@ -50,7 +50,7 @@ function AppInner() {
   const [viewMode, setViewMode] = useState<ViewMode>("driver");
   const [driveMode, setDriveMode] = useState(false);
   const [driveModeChooserOpen, setDriveModeChooserOpen] = useState(true);
-  const [autoNearestIntersection, setAutoNearestIntersection] = useState<NearestIntersection | null>(null);
+  const [autoNearestIntersection, setAutoNearestIntersection] = useState<NearestIntersection | null>(null);\n  const [driveSpeedMps, setDriveSpeedMps] = useState<number | null>(null);
   const [driveHistory, setDriveHistory] = useState<DriveHistoryItem[]>([]);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -298,7 +298,7 @@ function AppInner() {
         {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center lg:left-4 lg:right-[var(--signal-desktop-sheet-width)]"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
         {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-[70] max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg">SignalNow Debug</div>}
         <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} />
-        {driveMode && <DrivingSignalGuide intersection={selectedIntersection} signals={selectedIntersection?.signals ?? []} loading={signalLoadingId === selectedId || !selectedId} distanceMeters={autoNearestIntersection?.distanceMeters ?? null} history={driveHistory} onExit={handleDriveModeExit} onOpenDetails={() => { if (selectedId) setSheetOpen(true); }} />}
+        {driveMode && <DrivingSignalGuide intersection={selectedIntersection} signals={selectedIntersection?.signals ?? []} loading={signalLoadingId === selectedId || !selectedId} distanceMeters={autoNearestIntersection?.distanceMeters ?? null} speedMps={driveSpeedMps} history={driveHistory} onExit={handleDriveModeExit} onOpenDetails={() => { if (selectedId) setSheetOpen(true); }} />}
         {driveModeChooserOpen && (
           <div className="pointer-events-auto absolute inset-0 z-[80] flex items-center justify-center bg-background/45 p-4 backdrop-blur-sm">
             <div className="w-full max-w-md rounded-[2rem] border border-border/20 bg-card/95 p-5 shadow-2xl backdrop-blur-xl">
