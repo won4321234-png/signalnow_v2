@@ -12,11 +12,7 @@ function movementIcon(movement: MovementType) {
   return Gauge;
 }
 function uniqueVehicleSignals(signals: TrafficSignal[]): TrafficSignal[] {
-  const byMovement = new Map<MovementType, TrafficSignal>();
-  for (const signal of signals.filter((item) => item.movement !== "Pedestrian")) {
-    if (!byMovement.has(signal.movement)) byMovement.set(signal.movement, signal);
-  }
-  return [...byMovement.values()].sort((a, b) => MOVEMENT_ORDER.indexOf(a.movement) - MOVEMENT_ORDER.indexOf(b.movement));
+  return signals.filter((item) => item.movement !== "Pedestrian").slice().sort((a, b) => MOVEMENT_ORDER.indexOf(a.movement) - MOVEMENT_ORDER.indexOf(b.movement));
 }
 
 interface DrivingSignalGuideProps {
@@ -37,7 +33,7 @@ function SignalRow({ signal }: { signal: TrafficSignal }) {
       <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted/50", SIGNAL_TEXT_CLASS[color])}><Icon className="size-5" /></span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-extrabold text-foreground">{MOVEMENT_LABELS_KO[signal.movement]}</p>
-        <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{PHASE_LABELS[signal.state]}</p>
+        <p className="mt-0.5 text-[11px] font-medium text-muted-foreground">{DIRECTION_LABELS_KO[signal.direction]} · {PHASE_LABELS[signal.state]}</p>
       </div>
       <div className="flex shrink-0 items-end gap-0.5"><span className={cn("text-2xl font-black tabular-nums leading-none", SIGNAL_TEXT_CLASS[color])}>{seconds ?? "—"}</span>{seconds !== null && <span className="pb-0.5 text-[10px] font-bold text-muted-foreground">초</span>}</div>
     </div>
@@ -70,7 +66,7 @@ export function DrivingSignalGuide({ intersection, signals, loading = false, dis
             <>
               <div className="mb-2 flex items-center justify-between px-1"><p className="text-xs font-extrabold text-foreground">현재 신호</p><p className="text-[10px] font-semibold text-muted-foreground">{vehicleSignals.length}개 신호 데이터</p></div>
               <div className="flex flex-col gap-2">{vehicleSignals.map((signal) => <SignalRow key={`${signal.direction}-${signal.movement}`} signal={signal} />)}</div>
-              <div className="mt-3 flex items-center justify-between rounded-2xl border border-border/15 bg-muted/25 px-3.5 py-3"><div><p className="text-[10px] font-bold text-muted-foreground">대표 진행 방향</p><p className="mt-0.5 text-xs font-extrabold text-foreground">{DIRECTION_LABELS_KO[vehicleSignals[0].direction]} · {MOVEMENT_LABELS_KO[vehicleSignals[0].movement]}</p></div><ChevronRight className="size-4 text-muted-foreground/60" /></div>
+              <div className="mt-3 flex items-center justify-between rounded-2xl border border-border/15 bg-muted/25 px-3.5 py-3"><div><p className="text-[10px] font-bold text-muted-foreground">대표 진행 방향</p><p className="mt-0.5 text-xs font-extrabold text-foreground">전체 차량 신호 데이터를 자동 표시</p></div><ChevronRight className="size-4 text-muted-foreground/60" /></div>
             </>
           )}
           <button type="button" onClick={onOpenDetails} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-border/15 bg-muted/20 py-2.5 text-xs font-bold text-muted-foreground hover:bg-accent hover:text-foreground">기존 교차로 상세 화면 열기 <ChevronRight className="size-3.5" /></button>
