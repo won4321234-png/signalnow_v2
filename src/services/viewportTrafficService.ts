@@ -251,6 +251,7 @@ async function findSignalRecord(
         stdgCd: getActiveRegion().stdgCd,
         pageNo: 1,
         numOfRows: SIGNAL_PAGE_ROWS,
+        crsrdId: targetId,
       });
       const targetedIndex = targetedPage.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
       if (targetedIndex >= 0) {
