@@ -13,7 +13,8 @@ export interface SignalLoadResult { signals: TrafficSignal[]; status: Exclude<Si
 
 let activeRegionId: TrafficRegionId = DEFAULT_TRAFFIC_REGION;
 let regionGeneration = 0;
-const pageCache = new Map<number, KlidIntersectionRecord[]>();
+const pageCache = new Map<string, KlidIntersectionRecord[]>();
+const pageTotalCache = new Map<string, number>();
 const intersectionCache = new Map<string, Intersection>();
 const viewportCache = new Set<string>();
 const viewportPromiseCache = new Map<string, Promise<Intersection[]>>();
@@ -23,8 +24,7 @@ const signalPageCache = new Map<number, KlidSignalRecord[]>();
 const signalPagePromiseCache = new Map<number, Promise<TrafficApiPageResult<KlidSignalRecord>>>();
 const signalMatchPageCache = new Map<string, number>();
 let signalTotalPages = 0;
-let totalPages = 0;
-let nextPage = 1;
+
 const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 const debugLog = (message: string, data: Record<string, unknown>) => { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); };
 function getActiveRegion() { return TRAFFIC_REGIONS[activeRegionId]; }
@@ -58,25 +58,72 @@ function normalizeIntersection(record: KlidIntersectionRecord): Intersection | n
 }
 function viewportKey(viewport: Viewport): string { return [activeRegionId, viewport.south, viewport.west, viewport.north, viewport.east].map((value) => typeof value === "string" ? value : value.toFixed(3)).join(":"); }
 function contains(intersection: Intersection, viewport: Viewport): boolean { return intersection.mapCtptIntLat >= viewport.south && intersection.mapCtptIntLat <= viewport.north && intersection.mapCtptIntLot >= viewport.west && intersection.mapCtptIntLot <= viewport.east; }
-async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<Intersection[]> {
-  if (!allowBeyondKnownTotal && totalPages > 0 && nextPage > totalPages) return [];
+async function loadIntersectionPage(pageNo: number): Promise<Intersection[]> {
+  const regionId = activeRegionId;
+  const cacheKey = `${regionId}:${pageNo}`;
+  const cached = pageCache.get(cacheKey);
+  if (cached) {
+    return cached.map(normalizeIntersection).filter((item): item is Intersection => item !== null);
+  }
+
   const requestGeneration = regionGeneration;
-  const requestRegionId = activeRegionId;
-  const pageNo = nextPage;
-  let raw = pageCache.get(pageNo);
-  if (!raw) {
-    const region = getActiveRegion();
-    const page = await fetchTrafficMapInfo({
-      serviceKey: getServiceKey(),
-      stdgCd: region.stdgCd,
-      pageNo,
-      numOfRows: INTERSECTION_PAGE_ROWS,
-    });
-    if (requestGeneration !== regionGeneration || requestRegionId !== activeRegionId) {
-      throw new Error("Traffic region changed while loading intersections.");
-    }
-    const reportedTotalCount = toNumber(page.totalCount); if (reportedTotalCount > 0) totalPages = Math.max(totalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS)); raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item)); if (reportedTotalCount === 0 && raw.length < INTERSECTION_PAGE_ROWS) totalPages = Math.max(totalPages, pageNo); pageCache.set(pageNo, raw); debugLog("intersection API page", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" }); } nextPage = Math.max(nextPage, pageNo + 1); const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null); for (const intersection of normalized) if (!intersectionCache.has(intersection.crsrdId)) intersectionCache.set(intersection.crsrdId, intersection); return normalized; }
+  const region = getActiveRegion();
+  const page = await fetchTrafficMapInfo({
+    serviceKey: getServiceKey(),
+    stdgCd: region.stdgCd,
+    pageNo,
+    numOfRows: INTERSECTION_PAGE_ROWS,
+  });
+
+  if (requestGeneration !== regionGeneration || regionId !== activeRegionId) {
+    throw new Error("Traffic region changed while loading intersections.");
+  }
+
+  const raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item));
+  pageCache.set(cacheKey, raw);
+  const reportedTotalCount = toNumber(page.totalCount);
+  if (reportedTotalCount > 0) {
+    pageTotalCache.set(regionId, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS));
+  } else if (raw.length < INTERSECTION_PAGE_ROWS) {
+    pageTotalCache.set(regionId, pageNo);
+  }
+
+  const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null);
+  for (const intersection of normalized) intersectionCache.set(intersection.crsrdId, intersection);
+
+  debugLog("intersection API page", {
+    region: regionId,
+    stdgCd: region.stdgCd,
+    pageNo,
+    totalCount: page.totalCount,
+    totalPages: pageTotalCache.get(regionId) ?? 0,
+    itemCount: raw.length,
+    parsedCount: normalized.length,
+    firstId: raw[0]?.crsrdId ?? "",
+    lastId: raw[raw.length - 1]?.crsrdId ?? "",
+  });
+
+  return normalized;
+}
+
 export function configureTrafficRegion(regionId: TrafficRegionId): void {
+  if (activeRegionId === regionId) return;
+  activeRegionId = regionId;
+  regionGeneration += 1;
+  pageCache.clear();
+  pageTotalCache.clear();
+  intersectionCache.clear();
+  viewportCache.clear();
+  viewportPromiseCache.clear();
+  signalCache.clear();
+  signalPromiseCache.clear();
+  signalPageCache.clear();
+  signalPagePromiseCache.clear();
+  signalMatchPageCache.clear();
+  signalTotalPages = 0;
+  debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd });
+}
+
   if (activeRegionId === regionId) return;
   activeRegionId = regionId;
   regionGeneration += 1;
@@ -100,111 +147,58 @@ export async function loadIntersectionsForViewport(viewport: Viewport, options: 
   const key = viewportKey(paddedViewport);
 
   if (loadAll) {
-    const region = getActiveRegion();
-    const fullCache = new Map<string, Intersection>();
-    let pageNo = 1;
-    let knownTotalPages = 0;
-    let previousPageSignature = "";
+    const full = new Map<string, Intersection>();
+    const regionId = activeRegionId;
+    const knownTotalPages = () => pageTotalCache.get(regionId) ?? 0;
 
-    while (true) {
-      let raw = pageCache.get(pageNo);
-      let reportedTotalCount = 0;
-      if (!raw) {
-        const page = await fetchTrafficMapInfo({
-          serviceKey: getServiceKey(),
-          stdgCd: region.stdgCd,
-          pageNo,
-          numOfRows: INTERSECTION_PAGE_ROWS,
-        });
-        reportedTotalCount = toNumber(page.totalCount);
-        raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item));
-        pageCache.set(pageNo, raw);
-        if (reportedTotalCount > 0) knownTotalPages = Math.max(knownTotalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS));
-        debugLog("ground-truth intersection API page", {
-          region: activeRegionId,
-          stdgCd: region.stdgCd,
-          pageNo,
-          totalCount: page.totalCount,
-          totalPages: knownTotalPages,
-          itemCount: raw.length,
-          firstId: raw[0]?.crsrdId ?? "",
-          lastId: raw[raw.length - 1]?.crsrdId ?? "",
-        });
-      } else {
-        debugLog("ground-truth intersection page cache", {
-          region: activeRegionId,
-          stdgCd: region.stdgCd,
-          pageNo,
-          itemCount: raw.length,
-        });
-      }
-
-      const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null);
-      for (const intersection of normalized) fullCache.set(intersection.crsrdId, intersection);
-
-      const pageSignature = raw.map((item) => normalizeId(item.crsrdId)).join(",");
-      const reachedReportedEnd = knownTotalPages > 0 && pageNo >= knownTotalPages;
-      const reachedEmptyPage = raw.length === 0;
-      const repeatedPage = pageSignature.length > 0 && pageSignature === previousPageSignature;
-      debugLog("ground-truth intersection loading", {
-        region: activeRegionId,
-        stdgCd: region.stdgCd,
-        pageNo,
-        totalPages: knownTotalPages,
-        apiItems: raw.length,
-        parsedItems: normalized.length,
-        uniqueItems: fullCache.size,
-        reachedReportedEnd,
-        reachedEmptyPage,
-        repeatedPage,
-      });
-      if (reachedEmptyPage || repeatedPage || (reachedReportedEnd && raw.length < INTERSECTION_PAGE_ROWS)) break;
-      previousPageSignature = pageSignature;
-      pageNo += 1;
+    for (let pageNo = 1; ; pageNo += 1) {
+      const before = intersectionCache.size;
+      await loadIntersectionPage(pageNo);
+      for (const item of intersectionCache.values()) full.set(item.crsrdId, item);
+      const raw = pageCache.get(`${regionId}:${pageNo}`) ?? [];
+      const reachedEnd = knownTotalPages() > 0 && pageNo >= knownTotalPages();
+      const emptyPage = raw.length === 0;
+      if (emptyPage || reachedEnd) break;
+      if (pageNo > 1000 || (intersectionCache.size === before && raw.length < INTERSECTION_PAGE_ROWS)) break;
     }
 
-    intersectionCache.clear();
-    for (const [id, intersection] of fullCache) intersectionCache.set(id, intersection);
-    nextPage = Math.max(nextPage, pageNo);
-    totalPages = Math.max(totalPages, knownTotalPages, pageNo - (pageNo > 1 && fullCache.size > 0 ? 1 : 0));
-    return [...fullCache.values()];
-  }
-
-  if (viewportCache.has(key)) {
-    return [...intersectionCache.values()].filter((item) => contains(item, paddedViewport));
+    return [...full.values()];
   }
 
   const existing = viewportPromiseCache.get(key);
   if (existing) return existing;
 
-  const request = (async (): Promise<Intersection[]> => {
-    let loadedPages = 0;
+  const request = (async () => {
     try {
-      while ((totalPages === 0 || nextPage <= totalPages)) {
-        const pageItems = await loadNextIntersectionPage();
-        loadedPages += 1;
-        const visibleCount = [...intersectionCache.values()].filter((item) => contains(item, paddedViewport)).length;
+      const regionId = activeRegionId;
+      for (let pageNo = 1; ; pageNo += 1) {
+        await loadIntersectionPage(pageNo);
+        const visible = [...intersectionCache.values()].filter((item) => contains(item, paddedViewport));
+        const raw = pageCache.get(`${regionId}:${pageNo}`) ?? [];
+        const totalPages = pageTotalCache.get(regionId) ?? 0;
         debugLog("viewport intersection loading", {
-          region: activeRegionId,
+          region: regionId,
           stdgCd: getActiveRegion().stdgCd,
-          pageNo: nextPage - 1,
-          loadedPages,
+          pageNo,
           totalPages,
-          apiItems: pageItems.length,
           parsedItems: intersectionCache.size,
-          visibleCount,
+          pageItems: raw.length,
+          visibleCount: visible.length,
         });
-        if (visibleCount >= 80 || pageItems.length === 0) break;
+        if (visible.length >= 80 || raw.length === 0 || (totalPages > 0 && pageNo >= totalPages)) {
+          viewportCache.add(key);
+          return visible;
+        }
+        if (pageNo >= 1000) {
+          viewportCache.add(key);
+          return visible;
+        }
       }
-
-      const visible = [...intersectionCache.values()].filter((item) => contains(item, paddedViewport));
-      viewportCache.add(key);
-      return visible;
     } catch (error) {
-      // Never poison the viewport cache after a transient API/proxy failure.
       viewportCache.delete(key);
       throw error;
     }
+    return [];
   })();
 
   viewportPromiseCache.set(key, request);
