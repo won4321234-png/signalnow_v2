@@ -96,7 +96,7 @@ export default async function handler(req: Request, res: Response) {
     return jsonResponse(res, 400, { error: "Invalid pagination parameters" });
   }
 
-  const serviceKey = getServiceKey();
+  const requestServiceKey = stringParam(req.query.serviceKey);\n  const serviceKey =\n    process.env.TRAFFIC_API_SERVICE_KEY ||\n    process.env.TRAFFIC_API_KEY ||\n    process.env.VITE_TRAFFIC_API_KEY ||\n    process.env.VITE_DATA_API_SERVICE_KEY ||\n    requestServiceKey;
   if (!serviceKey) {
     return jsonResponse(res, 500, { error: "Traffic API service key is not configured on the server" });
   }
