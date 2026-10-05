@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BottomSheet } from "@/components/BottomSheet";
+import { DrivingSignalGuide } from "@/components/DrivingSignalGuide";
 import { Header } from "@/components/Header";
 import { KakaoMap } from "@/components/map/KakaoMap";
 import { SearchPanel } from "@/components/SearchPanel";
 import { configureTrafficRegion, fetchSelectedIntersectionSignals, type SignalLoadStatus, type SignalDiagnostic, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
 import { DEFAULT_TRAFFIC_REGION, TRAFFIC_REGIONS, type TrafficRegionId } from "@/data/regions";
 import type { DataStatus, Intersection, TrafficSignal, ViewMode } from "@/types/traffic";
+import type { NearestIntersection } from "@/hooks/useCurrentLocation";
 import { cn } from "@/lib/utils";
 
 import { AuthProvider } from "@/auth/context/AuthContext";
@@ -46,6 +48,9 @@ function AppInner() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("driver");
+  const [driveMode, setDriveMode] = useState(false);
+  const [driveModeChooserOpen, setDriveModeChooserOpen] = useState(true);
+  const [autoNearestIntersection, setAutoNearestIntersection] = useState<NearestIntersection | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -175,7 +180,7 @@ function AppInner() {
   }, [selectedId, regionId]);
 
   useEffect(() => {
-    if (!selectedId || !sheetOpen) {
+    if (!selectedId || (!sheetOpen && !driveMode)) {
       if (debugEnabled() && !selectedId) setDebugInfo((info) => ({ ...info, state: "idle", reason: "no-selected-id" }));
       return;
     }
@@ -211,7 +216,7 @@ function AppInner() {
         setSignalLoadingId((current) => (current === selectedId ? null : current));
       });
     return () => {};
-  }, [selectedId, sheetOpen, regionId]);
+  }, [selectedId, sheetOpen, driveMode, regionId]);
 
   const selectedIntersection = useMemo(() => {
     if (!selectedId) return null;
@@ -226,6 +231,28 @@ function AppInner() {
   const recentIntersections = useMemo(() => recentIds.map((id) => intersections.find((intersection) => intersection.crsrdId === id)).filter((i): i is Intersection => i !== undefined), [recentIds, intersections]);
   const recordRecent = useCallback((id: string) => setRecentIds((prev) => [id, ...prev.filter((r) => r !== id)].slice(0, MAX_RECENT)), []);
   const handleSelectIntersection = useCallback((intersectionId: string) => { setSelectedId(intersectionId); setSheetOpen(true); recordRecent(intersectionId); }, [recordRecent]);
+  const handleAutoIntersectionChange = useCallback((nearest: NearestIntersection | null) => {
+    if (!driveMode || !nearest) return;
+    setAutoNearestIntersection(nearest);
+    setSelectedId(nearest.crsrdId);
+    setSheetOpen(false);
+    recordRecent(nearest.crsrdId);
+  }, [driveMode, recordRecent]);
+  const handleDriveModeExit = useCallback(() => {
+    setDriveMode(false);
+    setAutoNearestIntersection(null);
+    setSelectedId(null);
+    setSheetOpen(false);
+  }, []);
+  const handleDriveModeStart = useCallback(() => {
+    setViewMode("driver");
+    setDriveMode(true);
+    setDriveModeChooserOpen(false);
+  }, []);
+  const handleNormalModeStart = useCallback(() => {
+    setDriveMode(false);
+    setDriveModeChooserOpen(false);
+  }, []);
   const handleCloseSheet = useCallback(() => { setSheetOpen(false); setSelectedId(null); }, []);
   const handleToggleFavorite = useCallback((intersectionId: string) => setFavorites((prev) => { const next = new Set(prev); if (next.has(intersectionId)) next.delete(intersectionId); else next.add(intersectionId); return next; }), []);
   const handleClearRecent = useCallback(() => setRecentIds([]), []);
@@ -240,7 +267,7 @@ function AppInner() {
   return (
     <div className="h-svh overflow-hidden bg-background">
       {page === "map" && <div className="relative h-full w-full [--signal-header-height:3.5rem] [--signal-desktop-sheet-width:min(360px,32vw)]">
-        <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} sheetOpen={sheetOpen} /></div>
+        <div className={cn("absolute inset-0 transition-[padding] duration-300 ease-out", sheetOpen ? "lg:pr-[var(--signal-desktop-sheet-width)]" : "lg:pr-0")}><KakaoMap intersections={intersections} selectedIntersection={selectedIntersection} selectedIntersectionId={selectedId} favoriteIds={favorites} viewMode={viewMode} region={region} onSelectIntersection={handleSelectIntersection} onViewportChange={handleViewportChange} sheetOpen={sheetOpen} autoDriveMode={driveMode} onAutoIntersectionChange={handleAutoIntersectionChange} /></div>
         <Header sidePanelOpen={sheetOpen} onLoginClick={handleLoginClick} onProfileClick={handleProfileClick} floating intersections={intersections} searchIntersections={searchIntersections} searchLoading={searchLoading} searchReady={searchReady} onLoadSearchIntersections={handleLoadSearchIntersections} onSelectIntersection={handleSelectIntersection} />
         <div className="pointer-events-none absolute inset-x-3 top-[4rem] z-40 lg:hidden"><div className="pointer-events-auto w-full max-w-[340px]"><SearchPanel mode={viewMode} onModeChange={setViewMode} intersections={intersections} searchIntersections={searchIntersections} searchLoading={searchLoading} searchReady={searchReady} onLoadSearchIntersections={handleLoadSearchIntersections} onSelect={handleSelectIntersection} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
         <div className="pointer-events-none absolute left-4 top-[4.5rem] z-40 hidden lg:block"><div className="pointer-events-auto"><SearchPanel modeOnly mode={viewMode} onModeChange={setViewMode} region={region} regions={Object.values(TRAFFIC_REGIONS)} onRegionChange={handleRegionChange} /></div></div>
@@ -248,6 +275,26 @@ function AppInner() {
         {selectedSignalStatus === "error" && <div className="pointer-events-none absolute inset-x-4 bottom-[calc(var(--signal-sheet-height,0px)+1rem)] z-[60] flex justify-center lg:left-4 lg:right-[var(--signal-desktop-sheet-width)]"><div className="pointer-events-auto max-w-[min(520px,calc(100vw-2rem))] rounded-xl border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg">선택한 교차로의 최신 신호 데이터를 불러오지 못했습니다. 마지막 정상 데이터를 유지하고 다시 시도합니다.</div></div>}
         {debug && <div className="pointer-events-none absolute bottom-4 right-4 z-[70] max-h-[70vh] max-w-[calc(100vw-2rem)] overflow-auto rounded-xl border border-border bg-background/95 px-3 py-2 text-[11px] leading-5 text-foreground shadow-lg">SignalNow Debug</div>}
         <BottomSheet open={sheetOpen} intersection={selectedIntersection} status={panelStatus} signalLoading={signalLoadingId === selectedId} viewMode={viewMode} favorites={favorites} recent={recentIntersections} onToggleFavorite={handleToggleFavorite} onSelectRecent={handleSelectIntersection} onClearRecent={handleClearRecent} onClose={handleCloseSheet} />
+        {driveMode && <DrivingSignalGuide intersection={selectedIntersection} signals={selectedIntersection?.signals ?? []} loading={signalLoadingId === selectedId || !selectedId} distanceMeters={autoNearestIntersection?.distanceMeters ?? null} onExit={handleDriveModeExit} onOpenDetails={() => { if (selectedId) setSheetOpen(true); }} />}
+        {driveModeChooserOpen && (
+          <div className="pointer-events-auto absolute inset-0 z-[80] flex items-center justify-center bg-background/45 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-[2rem] border border-border/20 bg-card/95 p-5 shadow-2xl backdrop-blur-xl">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">SignalNow</p>
+              <h1 className="mt-1 text-2xl font-black tracking-tight text-foreground">어떻게 사용할까요?</h1>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">지도에서 신호등을 직접 선택하거나, 이동 중 가까운 교차로 신호를 자동으로 따라갈 수 있습니다.</p>
+              <div className="mt-5 grid gap-2.5">
+                <button type="button" onClick={handleDriveModeStart} className="rounded-2xl bg-primary px-4 py-4 text-left text-primary-foreground shadow-lg transition-transform hover:scale-[1.01] active:scale-[0.99]">
+                  <p className="text-base font-black">자동 운행 안내</p>
+                  <p className="mt-1 text-xs font-medium opacity-80">현재 위치를 따라 다음 교차로와 차량 신호를 자동 표시</p>
+                </button>
+                <button type="button" onClick={handleNormalModeStart} className="rounded-2xl border border-border/20 bg-muted/30 px-4 py-4 text-left transition-colors hover:bg-accent">
+                  <p className="text-base font-black text-foreground">일반 지도</p>
+                  <p className="mt-1 text-xs font-medium text-muted-foreground">기존처럼 지도에서 교차로를 선택해 확인</p>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>}
       {page === "mypage" && <MyPage onBack={handleBackToMap} onSettingsClick={handleSettingsClick} />}
       {page === "settings" && <SettingsPage onBack={handleBackToMap} />}
