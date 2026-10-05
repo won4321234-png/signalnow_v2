@@ -25,19 +25,22 @@ interface DrivingSignalGuideProps {
   loading?: boolean;
   distanceMeters?: number | null;
   speedMps?: number | null;
+  accelerationMps2?: number | null;
+  accuracyM?: number | null;
   history?: DriveHistoryItem[];
   onExit: () => void;
   onOpenDetails: () => void;
 }
 
-function vehicleSignals(signals: TrafficSignal[]): TrafficSignal[] {
+function allSignals(signals: TrafficSignal[]): TrafficSignal[] {
   return signals
-    .filter((signal) => signal.movement !== "Pedestrian")
     .slice()
     .sort((a, b) => {
       const direction = a.direction.localeCompare(b.direction);
       if (direction !== 0) return direction;
-      return MOVEMENT_ORDER.indexOf(a.movement) - MOVEMENT_ORDER.indexOf(b.movement);
+      const movementA = MOVEMENT_ORDER.indexOf(a.movement);
+      const movementB = MOVEMENT_ORDER.indexOf(b.movement);
+      return (movementA < 0 ? 99 : movementA) - (movementB < 0 ? 99 : movementB);
     });
 }
 
@@ -58,9 +61,12 @@ function SignalRail({ signal }: { signal: TrafficSignal }) {
 
   return (
     <div className="relative flex min-w-[112px] flex-1 flex-col items-center">
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black text-white/70">
-        <Icon className="size-4" strokeWidth={2.6} />
-        <span>{MOVEMENT_LABELS_KO[signal.movement]}</span>
+      <div className="mb-2 flex flex-col items-center text-center">
+        <span className="text-[9px] font-bold text-white/35">{signal.direction}</span>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-black text-white/75">
+          <Icon className="size-4" strokeWidth={2.6} />
+          <span>{MOVEMENT_LABELS_KO[signal.movement]}</span>
+        </div>
       </div>
       <div className="relative h-[320px] w-[78px] overflow-hidden rounded-[8px] border border-white/15 bg-[#10191a] shadow-[0_0_0_1px_rgba(0,0,0,.45),0_18px_40px_rgba(0,0,0,.28)]">
         <div className="absolute inset-[7px] flex flex-col overflow-hidden rounded-[3px] bg-[#15221e]">
@@ -116,11 +122,13 @@ export function DrivingSignalGuide({
   loading = false,
   distanceMeters,
   speedMps = null,
+  accelerationMps2 = null,
+  accuracyM = null,
   history = [],
   onExit,
   onOpenDetails,
 }: DrivingSignalGuideProps) {
-  const currentSignals = vehicleSignals(signals);
+  const currentSignals = allSignals(signals);
   const distance = distanceMeters !== null && distanceMeters !== undefined && Number.isFinite(distanceMeters)
     ? Math.round(distanceMeters)
     : null;
@@ -129,6 +137,8 @@ export function DrivingSignalGuide({
     ? null
     : Math.max(0, Math.floor(leadSignal.remainingSeconds));
   const speedKmh = speedMps !== null && Number.isFinite(speedMps) ? Math.round(speedMps * 3.6) : null;
+  const acceleration = accelerationMps2 !== null && Number.isFinite(accelerationMps2) ? accelerationMps2 : null;
+  const accuracy = accuracyM !== null && Number.isFinite(accuracyM) ? Math.round(accuracyM) : null;
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-[90] overflow-hidden bg-[#05090b] text-white">
@@ -139,7 +149,7 @@ export function DrivingSignalGuide({
         </button>
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/10 bg-white/[0.045] px-4 py-2 text-[11px] font-black text-white/55">화면</span>
-          <span className="rounded-full border border-[#2f737a]/50 bg-[#0b2529] px-4 py-2 text-[11px] font-black text-[#65dce4]">● GPS ±8m · 자동</span>
+          <span className="rounded-full border border-[#2f737a]/50 bg-[#0b2529] px-4 py-2 text-[11px] font-black text-[#65dce4]">● GPS {accuracy === null ? "확인 중" : "±" + accuracy + "m"} · 자동</span>
           <button type="button" aria-label="교차로 상세 검색" onClick={onOpenDetails} className="flex size-10 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10">
             <Search className="size-7" strokeWidth={2} />
           </button>
@@ -165,8 +175,8 @@ export function DrivingSignalGuide({
 
             <div className="mt-7 border-t border-white/10 pt-5">
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-[11px] font-black tracking-[0.12em] text-white/45">차량 신호</p>
-                <span className="text-[10px] font-bold text-white/25">{currentSignals.length}개 데이터</span>
+                <p className="text-[11px] font-black tracking-[0.12em] text-white/45">전체 신호</p>
+                <span className="text-[10px] font-bold text-white/25">{currentSignals.length}개 데이터 · 보행/차량/버스/자전거 포함</span>
               </div>
 
               {loading ? (
@@ -180,8 +190,8 @@ export function DrivingSignalGuide({
               ) : currentSignals.length === 0 ? (
                 <div className="flex min-h-[390px] items-center justify-center text-center">
                   <div>
-                    <p className="text-lg font-black">표시할 차량 신호가 없습니다.</p>
-                    <p className="mt-1 text-xs font-semibold text-white/35">신호 데이터가 있는 다음 교차로를 자동으로 탐색합니다.</p>
+                    <p className="text-lg font-black">표시할 신호 데이터가 없습니다.</p>
+                    <p className="mt-1 text-xs font-semibold text-white/35">이 교차로에는 현재 제공되는 신호 데이터가 없습니다. 다음 교차로를 자동으로 탐색합니다.</p>
                   </div>
                 </div>
               ) : (
@@ -195,7 +205,10 @@ export function DrivingSignalGuide({
 
             <div className="mt-1 flex items-end justify-between gap-6 border-t border-white/[0.06] py-5 text-white/30">
               <div className="flex items-center gap-2 text-xs font-bold"><Volume2 className="size-4" /> 신호 변경 알림 · 핀 선택 없이 자동 전환</div>
-              <div className="shrink-0 text-right"><p className="text-[9px] font-bold text-white/25">현재 속도</p><p className="mt-0.5 text-[clamp(2.5rem,7vw,4.5rem)] font-light leading-none tabular-nums text-white">{speedKmh ?? "—"}<span className="ml-1 text-base font-normal text-white/40">km/h</span></p></div>
+              <div className="flex items-end gap-5">
+                <div className="text-right"><p className="text-[9px] font-bold text-white/25">현재 속도</p><p className="mt-0.5 text-[clamp(2.5rem,7vw,4.5rem)] font-light leading-none tabular-nums text-white">{speedKmh ?? "—"}<span className="ml-1 text-base font-normal text-white/40">km/h</span></p></div>
+                <div className="pb-1 text-right"><p className="text-[9px] font-bold text-white/25">가속도</p><p className="mt-0.5 text-xl font-light leading-none tabular-nums text-[#65dce4]">{acceleration === null ? "—" : (acceleration >= 0 ? "+" : "") + acceleration.toFixed(1)}<span className="ml-1 text-[9px] text-white/35">m/s²</span></p></div>
+              </div>
             </div>
           </div>
         </section>
