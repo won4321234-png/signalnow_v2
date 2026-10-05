@@ -1,5 +1,5 @@
 import type { ApproachDirection, Intersection, MovementType, SignalPhaseState, TrafficSignal } from "@/types/traffic";
-import { fetchTrafficMapInfo, fetchTrafficSignalInfo, type KlidIntersectionRecord, type KlidSignalRecord, type TrafficApiDebugMeta, type TrafficApiRequestError } from "@/services/trafficApi";
+import { fetchTrafficMapInfo, fetchTrafficSignalInfo, type KlidIntersectionRecord, type KlidSignalRecord, type TrafficApiDebugMeta, type TrafficApiRequestError, type TrafficApiPageResult } from "@/services/trafficApi";
 import { DEFAULT_TRAFFIC_REGION, TRAFFIC_REGIONS, type TrafficRegionId } from "@/data/regions";
 
 const INTERSECTION_PAGE_ROWS = 100;
@@ -17,12 +17,16 @@ const intersectionCache = new Map<string, Intersection>();
 const viewportCache = new Set<string>();
 const signalCache = new Map<string, TrafficSignal[]>();
 const signalPromiseCache = new Map<string, Promise<SignalLoadResult>>();
+const signalPageCache = new Map<number, KlidSignalRecord[]>();
+const signalPagePromiseCache = new Map<number, Promise<TrafficApiPageResult<KlidSignalRecord>>>();
+const signalMatchPageCache = new Map<string, number>();
+let signalTotalPages = 0;
 let totalPages = 0;
 let nextPage = 1;
 const debugEnabled = () => new URLSearchParams(window.location.search).get("debug") === "1";
 const debugLog = (message: string, data: Record<string, unknown>) => { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); };
 function getActiveRegion() { return TRAFFIC_REGIONS[activeRegionId]; }
-function getServiceKey(): string { const key = import.meta.env.VITE_TRAFFIC_API_KEY ?? import.meta.env.VITE_DATA_API_SERVICE_KEY; if (!key?.trim()) throw new Error("Traffic API service key is not set."); return key; }
+function getServiceKey(): string { return "server-proxy"; }
 function toNumber(value: string | number | undefined): number { const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function toOptionalNumber(value: unknown): number | undefined { if (value === undefined || value === null || value === "") return undefined; const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed / 1000 : undefined; }
 function normalizeId(value: unknown): string { return String(value ?? "").trim(); }
@@ -30,7 +34,7 @@ function normalizeIntersection(record: KlidIntersectionRecord): Intersection | n
 function viewportKey(viewport: Viewport): string { return [activeRegionId, viewport.south, viewport.west, viewport.north, viewport.east].map((value) => typeof value === "string" ? value : value.toFixed(3)).join(":"); }
 function contains(intersection: Intersection, viewport: Viewport): boolean { return intersection.mapCtptIntLat >= viewport.south && intersection.mapCtptIntLat <= viewport.north && intersection.mapCtptIntLot >= viewport.west && intersection.mapCtptIntLot <= viewport.east; }
 async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<Intersection[]> { if (!allowBeyondKnownTotal && totalPages > 0 && nextPage > totalPages) return []; const pageNo = nextPage; let raw = pageCache.get(pageNo); if (!raw) { const region = getActiveRegion(); const page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS }); const reportedTotalCount = toNumber(page.totalCount); if (reportedTotalCount > 0) totalPages = Math.max(totalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS)); raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item)); if (reportedTotalCount === 0 && raw.length < INTERSECTION_PAGE_ROWS) totalPages = Math.max(totalPages, pageNo); pageCache.set(pageNo, raw); debugLog("intersection API page", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" }); } nextPage = Math.max(nextPage, pageNo + 1); const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null); for (const intersection of normalized) if (!intersectionCache.has(intersection.crsrdId)) intersectionCache.set(intersection.crsrdId, intersection); return normalized; }
-export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
+export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
 export function getTrafficRegion(): TrafficRegionId { return activeRegionId; }
 export async function loadIntersectionsForViewport(viewport: Viewport, options: IntersectionLoadOptions = {}): Promise<Intersection[]> { const isGroundTruthAdmin = window.location.pathname === "/admin/intersections" || window.location.pathname === "/intersection-editor"; const { loadAll = isGroundTruthAdmin } = options; const latSpan = Math.max(0.001, viewport.north - viewport.south); const lngSpan = Math.max(0.001, viewport.east - viewport.west); const paddedViewport: Viewport = { south: viewport.south - latSpan * VIEWPORT_PADDING, west: viewport.west - lngSpan * VIEWPORT_PADDING, north: viewport.north + latSpan * VIEWPORT_PADDING, east: viewport.east + lngSpan * VIEWPORT_PADDING }; const key = viewportKey(paddedViewport); if (loadAll) { const region = getActiveRegion(); const fullCache = new Map<string, Intersection>(); let pageNo = 1; let knownTotalPages = 0; let previousPageSignature = ""; while (true) { let raw = pageCache.get(pageNo); let reportedTotalCount = 0; if (!raw) { const page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS }); reportedTotalCount = toNumber(page.totalCount); raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item)); pageCache.set(pageNo, raw); if (reportedTotalCount > 0) knownTotalPages = Math.max(knownTotalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS)); debugLog("ground-truth intersection API page", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages: knownTotalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" }); } else { debugLog("ground-truth intersection page cache", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, itemCount: raw.length }); } const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null); for (const intersection of normalized) fullCache.set(intersection.crsrdId, intersection); const pageSignature = raw.map((item) => normalizeId(item.crsrdId)).join(","); const reachedReportedEnd = knownTotalPages > 0 && pageNo >= knownTotalPages; const reachedEmptyPage = raw.length === 0; const repeatedPage = pageSignature.length > 0 && pageSignature === previousPageSignature; debugLog("ground-truth intersection loading", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, totalPages: knownTotalPages, apiItems: raw.length, parsedItems: normalized.length, uniqueItems: fullCache.size, reachedReportedEnd, reachedEmptyPage, repeatedPage }); if (reachedEmptyPage || repeatedPage || (reachedReportedEnd && raw.length < INTERSECTION_PAGE_ROWS)) break; previousPageSignature = pageSignature; pageNo += 1; } intersectionCache.clear(); for (const [id, intersection] of fullCache) intersectionCache.set(id, intersection); nextPage = Math.max(nextPage, pageNo); totalPages = Math.max(totalPages, knownTotalPages, pageNo - (pageNo > 1 && fullCache.size > 0 ? 1 : 0)); return [...fullCache.values()]; } if (!viewportCache.has(key)) { viewportCache.add(key); let loadedPages = 0; while ((totalPages === 0 || nextPage <= totalPages)) { const pageItems = await loadNextIntersectionPage(); loadedPages += 1; const visibleCount = [...intersectionCache.values()].filter((item) => contains(item, paddedViewport)).length; debugLog("viewport intersection loading", { region: activeRegionId, stdgCd: getActiveRegion().stdgCd, pageNo: nextPage - 1, loadedPages, totalPages, apiItems: pageItems.length, parsedItems: intersectionCache.size, visibleCount }); if (visibleCount >= 80) break; if (pageItems.length === 0) break; } } return [...intersectionCache.values()].filter((item) => contains(item, paddedViewport)); }
 function normalizeState(value: unknown): SignalPhaseState | undefined { if (value === undefined || value === null || value === "") return undefined; const text = String(value).trim().toLowerCase(); if (text.includes("yellow") || text.includes("clearance") || text.includes("amber") || text.includes("황색")) return "protected-clearance"; if (text.includes("green") || text.includes("allowed") || text.includes("go") || text.includes("녹색")) return "protected-Movement-Allowed"; if (text.includes("red") || text.includes("stop") || text.includes("remain") || text.includes("적색")) return "stop-And-Remain"; return undefined; }
@@ -38,5 +42,276 @@ const directions: Array<[ApproachDirection, string]> = [["North","nt"],["East","
 const movements: Array<[MovementType, string]> = [["Bus","Bssg"],["Bicycle","Bcsg"],["Left Turn","Ltsg"],["Pedestrian","Pdsg"],["Straight","Stsg"],["U Turn","Utsg"]];
 function extractSignals(record: KlidSignalRecord, apiPageNo: number, apiItemIndex: number): { signals: TrafficSignal[]; diagnostics: SignalDiagnostic[] } { const signals: TrafficSignal[] = []; const diagnostics: SignalDiagnostic[] = []; const crsrdId = normalizeId(record.crsrdId); const crsrdNm = String(record.crsrdNm ?? ""); for (const [direction,prefix] of directions) for (const [movement,suffix] of movements) { const remainingKey = `${prefix}${suffix}RmndCs` as keyof KlidSignalRecord; const stateKey = `${prefix}${suffix}SttsNm` as keyof KlidSignalRecord; const remaining = record[remainingKey]; const rawState = record[stateKey]; const state = normalizeState(rawState); const parsedRemaining = toOptionalNumber(remaining); if (remaining === undefined && state === undefined) continue; diagnostics.push({ direction, movement, field: String(remainingKey), rawRemaining: remaining, parsedRemaining, rawState, apiPageNo, apiItemIndex, crsrdId, crsrdNm }); if (state === undefined) continue; signals.push({ direction, movement, state, remainingSeconds: parsedRemaining, cycleSeconds: 60 }); } return { signals, diagnostics }; }
 function diagnosticReason(base: string, sampleIds: string[], matchedKeys: string[]): string { const samples = sampleIds.length > 0 ? ` samples=${sampleIds.slice(0, 5).join(",")}` : " samples=-"; const keys = matchedKeys.length > 0 ? ` keys=${matchedKeys.slice(0, 40).join(",")}` : ""; return `${base}${samples}${keys}`; }
-async function loadSignalsForId(crsrdId: string, forceRefresh = false): Promise<SignalLoadResult> { const normalizedTargetId = normalizeId(crsrdId); const cached = signalCache.get(normalizedTargetId); if (!forceRefresh && cached && cached.length > 0) return { signals: cached, status: "success", debug: { apiStatus: "cached", itemCount: cached.length, matched: true, matchedId: normalizedTargetId, matchedName: "", apiPageNo: 0, apiItemIndex: -1, via: "-", responseReceived: true, sampleIds: [normalizedTargetId], matchedKeys: [], signalDiagnostics: [], failureReason: "" } }; const pending = signalPromiseCache.get(normalizedTargetId); if (pending) return pending; const promise = (async (): Promise<SignalLoadResult> => { let lastDebug: SignalLoadResult["debug"] = { apiStatus: "-", itemCount: 0, matched: false, matchedId: "", matchedName: "", apiPageNo: 0, apiItemIndex: -1, via: "-", responseReceived: false, sampleIds: [], matchedKeys: [], signalDiagnostics: [], failureReason: "request-not-started" }; let sampleIds: string[] = []; let latestItemCount = 0; try { const region = getActiveRegion(); const firstPage = await fetchTrafficSignalInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo: 1, numOfRows: SIGNAL_PAGE_ROWS }); sampleIds = firstPage.debug.sampleIds; latestItemCount = firstPage.debug.itemCount; lastDebug = { apiStatus: firstPage.debug.apiStatus, itemCount: latestItemCount, matched: false, matchedId: "", matchedName: "", apiPageNo: 0, apiItemIndex: -1, via: firstPage.debug.via, responseReceived: firstPage.debug.responseReceived, sampleIds, matchedKeys: [], signalDiagnostics: [], failureReason: firstPage.debug.itemCount === 0 ? "no-items" : "" }; const totalSignalPages = Math.max(1, Math.ceil((toNumber(firstPage.totalCount) || SIGNAL_PAGE_ROWS) / SIGNAL_PAGE_ROWS)); for (let pageNo = 1; pageNo <= totalSignalPages; pageNo += 1) { const page = pageNo === 1 ? firstPage : await fetchTrafficSignalInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: SIGNAL_PAGE_ROWS }); latestItemCount = page.debug.itemCount; if (sampleIds.length < 5) sampleIds = [...new Set([...sampleIds, ...page.debug.sampleIds])].slice(0, 5); lastDebug = { ...lastDebug, apiStatus: page.debug.apiStatus, itemCount: latestItemCount, via: page.debug.via, responseReceived: page.debug.responseReceived, sampleIds }; const apiItemIndex = page.items.findIndex((item) => normalizeId(item.crsrdId) === normalizedTargetId); const match = apiItemIndex >= 0 ? page.items[apiItemIndex] : undefined; debugLog("crsrdId matching", { region: activeRegionId, targetId: crsrdId, normalizedTargetId, itemCount: page.items.length, matched: Boolean(match), matchedId: match ? normalizeId(match.crsrdId) : "", matchedName: match?.crsrdNm ?? "", pageNo, apiItemIndex }); if (!match) continue; const matchedKeys = Object.keys(match).slice(0, 80); lastDebug = { ...lastDebug, matched: true, matchedId: normalizeId(match.crsrdId), matchedName: String(match.crsrdNm ?? ""), apiPageNo: pageNo, apiItemIndex, matchedKeys, sampleIds }; const extraction = extractSignals(match, pageNo, apiItemIndex); const signals = extraction.signals; const signalTypes = [...new Set(signals.map((signal) => signal.movement))]; lastDebug = { ...lastDebug, signalDiagnostics: extraction.diagnostics }; debugLog("signal extraction", { region: activeRegionId, matched: true, crsrdId: normalizeId(match.crsrdId), crsrdNm: match.crsrdNm, apiPageNo: pageNo, apiItemIndex, signalCount: signals.length, signalTypes, matchedKeys }); if (debugEnabled()) { debugLog("signal raw matched item", { region: activeRegionId, crsrdId: normalizeId(match.crsrdId), crsrdNm: match.crsrdNm, apiPageNo: pageNo, apiItemIndex, signalFields: extraction.diagnostics.map((item) => ({ direction: item.direction, movement: item.movement, field: item.field, rawRemaining: item.rawRemaining, parsedRemaining: item.parsedRemaining, rawState: item.rawState })) }); } if (signals.length > 0) { signalCache.set(normalizedTargetId, signals); debugLog("SUCCESS: signals extracted", { region: activeRegionId, targetId: normalizedTargetId, signalCount: signals.length }); return { signals, status: "success", debug: { ...lastDebug, failureReason: "" } }; } signalCache.delete(normalizedTargetId); const reason = diagnosticReason("no-signal-fields", sampleIds, matchedKeys); debugLog("FAILURE: matched intersection but extracted 0 signals", { region: activeRegionId, targetId: normalizedTargetId, matchedKeys, sampleIds }); return { signals: [], status: "empty", debug: { ...lastDebug, failureReason: reason } }; } signalCache.delete(normalizedTargetId); const reason = diagnosticReason(sampleIds.length === 0 ? "no-items" : "no-matching-crsrdId", sampleIds, []); debugLog("FAILURE: no matching crsrdId", { region: activeRegionId, targetId: crsrdId, sampleIds }); return { signals: [], status: "empty", debug: { ...lastDebug, itemCount: latestItemCount, sampleIds, matchedKeys: [], signalDiagnostics: [], failureReason: reason } }; } catch (error) { signalCache.delete(normalizedTargetId); const apiError = error as TrafficApiRequestError; const errorDebug: TrafficApiDebugMeta | undefined = apiError && apiError.debug; debugLog("FAILURE: API request failed", { region: activeRegionId, targetId: crsrdId, apiStatus: errorDebug?.apiStatus ?? "error", via: errorDebug?.via ?? "-" }); return { signals: [], status: "error", debug: { apiStatus: errorDebug?.apiStatus ?? "error", itemCount: errorDebug?.itemCount ?? 0, matched: false, matchedId: "", matchedName: "", apiPageNo: 0, apiItemIndex: -1, via: errorDebug?.via ?? "-", responseReceived: errorDebug?.responseReceived ?? false, sampleIds: errorDebug?.sampleIds ?? [], matchedKeys: [], signalDiagnostics: [], failureReason: errorDebug?.apiStatus === "parse-error" ? "parse-error" : errorDebug?.apiStatus === "network-error" ? "network-error-or-timeout" : errorDebug?.apiStatus?.startsWith("api-error:") ? "api-error" : "request-failed" } }; } })(); signalPromiseCache.set(normalizedTargetId, promise); try { return await promise; } finally { signalPromiseCache.delete(normalizedTargetId); } }
+async function fetchSignalPage(pageNo: number, forceRefresh = false): Promise<TrafficApiPageResult<KlidSignalRecord>> {
+  if (!forceRefresh) {
+    const cached = signalPageCache.get(pageNo);
+    if (cached) {
+      return {
+        totalCount: signalTotalPages * SIGNAL_PAGE_ROWS,
+        items: cached,
+        debug: {
+          apiStatus: "cached",
+          via: "proxy",
+          responseReceived: true,
+          itemCount: cached.length,
+          sampleIds: cached.slice(0, 5).map((item) => normalizeId(item.crsrdId)).filter(Boolean),
+        },
+      };
+    }
+    const pending = signalPagePromiseCache.get(pageNo);
+    if (pending) return pending;
+  }
+
+  const promise = fetchTrafficSignalInfo({
+    serviceKey: getServiceKey(),
+    stdgCd: getActiveRegion().stdgCd,
+    pageNo,
+    numOfRows: SIGNAL_PAGE_ROWS,
+  }).then((page) => {
+    signalPageCache.set(pageNo, page.items);
+    if (page.totalCount > 0) {
+      signalTotalPages = Math.max(signalTotalPages, Math.ceil(page.totalCount / SIGNAL_PAGE_ROWS));
+    } else if (page.items.length < SIGNAL_PAGE_ROWS) {
+      signalTotalPages = Math.max(signalTotalPages, pageNo);
+    }
+    return page;
+  });
+
+  signalPagePromiseCache.set(pageNo, promise);
+  try {
+    return await promise;
+  } finally {
+    signalPagePromiseCache.delete(pageNo);
+  }
+}
+
+async function findSignalRecord(
+  crsrdId: string,
+  forceRefresh: boolean,
+): Promise<{ record: KlidSignalRecord; pageNo: number; page: TrafficApiPageResult<KlidSignalRecord> } | null> {
+  const targetId = normalizeId(crsrdId);
+  const cachedPageNo = signalMatchPageCache.get(targetId);
+
+  if (forceRefresh && cachedPageNo) {
+    const page = await fetchSignalPage(cachedPageNo, true);
+    const index = page.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+    if (index >= 0) return { record: page.items[index], pageNo: cachedPageNo, page };
+    signalMatchPageCache.delete(targetId);
+  }
+
+  const firstPage = await fetchSignalPage(1, forceRefresh);
+  const firstIndex = firstPage.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+  if (firstIndex >= 0) {
+    signalMatchPageCache.set(targetId, 1);
+    return { record: firstPage.items[firstIndex], pageNo: 1, page: firstPage };
+  }
+
+  const totalPagesForSearch = Math.max(
+    signalTotalPages,
+    firstPage.totalCount > 0 ? Math.ceil(firstPage.totalCount / SIGNAL_PAGE_ROWS) : 1,
+  );
+  if (totalPagesForSearch <= 1) return null;
+
+  for (let pageNo = 2; pageNo <= totalPagesForSearch; pageNo += 1) {
+    const cached = signalPageCache.get(pageNo);
+    if (!cached) continue;
+    const index = cached.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+    if (index >= 0) {
+      const page: TrafficApiPageResult<KlidSignalRecord> = {
+        totalCount: signalTotalPages * SIGNAL_PAGE_ROWS,
+        items: cached,
+        debug: {
+          apiStatus: "cached",
+          via: "proxy",
+          responseReceived: true,
+          itemCount: cached.length,
+          sampleIds: cached.slice(0, 5).map((item) => normalizeId(item.crsrdId)).filter(Boolean),
+        },
+      };
+      signalMatchPageCache.set(targetId, pageNo);
+      return { record: cached[index], pageNo, page };
+    }
+  }
+
+  const concurrency = 6;
+  for (let batchStart = 2; batchStart <= totalPagesForSearch; batchStart += concurrency) {
+    const pageNumbers = Array.from(
+      { length: Math.min(concurrency, totalPagesForSearch - batchStart + 1) },
+      (_, index) => batchStart + index,
+    ).filter((pageNo) => !signalPageCache.has(pageNo));
+
+    const pages = await Promise.all(pageNumbers.map((pageNo) => fetchSignalPage(pageNo)));
+    for (let index = 0; index < pages.length; index += 1) {
+      const page = pages[index];
+      const pageNo = pageNumbers[index];
+      const matchIndex = page.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+      if (matchIndex >= 0) {
+        signalMatchPageCache.set(targetId, pageNo);
+        return { record: page.items[matchIndex], pageNo, page };
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildSignalDebug(
+  base: SignalLoadResult["debug"],
+  patch: Partial<SignalLoadResult["debug"]>,
+): SignalLoadResult["debug"] {
+  return { ...base, ...patch };
+}
+
+async function loadSignalsForId(crsrdId: string, forceRefresh = false): Promise<SignalLoadResult> {
+  const targetId = normalizeId(crsrdId);
+  if (!targetId) {
+    return {
+      signals: [],
+      status: "error",
+      debug: {
+        apiStatus: "invalid-request",
+        itemCount: 0,
+        matched: false,
+        matchedId: "",
+        matchedName: "",
+        apiPageNo: 0,
+        apiItemIndex: -1,
+        via: "-",
+        responseReceived: false,
+        sampleIds: [],
+        matchedKeys: [],
+        signalDiagnostics: [],
+        failureReason: "invalid-crsrdId",
+      },
+    };
+  }
+
+  const cachedSignals = signalCache.get(targetId);
+  if (!forceRefresh && cachedSignals && cachedSignals.length > 0) {
+    return {
+      signals: cachedSignals,
+      status: "success",
+      debug: {
+        apiStatus: "cached",
+        itemCount: cachedSignals.length,
+        matched: true,
+        matchedId: targetId,
+        matchedName: "",
+        apiPageNo: signalMatchPageCache.get(targetId) ?? 0,
+        apiItemIndex: -1,
+        via: "proxy",
+        responseReceived: true,
+        sampleIds: [targetId],
+        matchedKeys: [],
+        signalDiagnostics: [],
+        failureReason: "",
+      },
+    };
+  }
+
+  const pending = signalPromiseCache.get(targetId);
+  if (pending) return pending;
+
+  const promise = (async (): Promise<SignalLoadResult> => {
+    const baseDebug: SignalLoadResult["debug"] = {
+      apiStatus: "-",
+      itemCount: 0,
+      matched: false,
+      matchedId: "",
+      matchedName: "",
+      apiPageNo: 0,
+      apiItemIndex: -1,
+      via: "proxy",
+      responseReceived: false,
+      sampleIds: [],
+      matchedKeys: [],
+      signalDiagnostics: [],
+      failureReason: "request-not-started",
+    };
+
+    try {
+      const match = await findSignalRecord(targetId, forceRefresh);
+      if (!match) {
+        const firstPage = signalPageCache.get(1) ?? [];
+        return {
+          signals: [],
+          status: "empty",
+          debug: buildSignalDebug(baseDebug, {
+            apiStatus: "200",
+            itemCount: firstPage.length,
+            responseReceived: true,
+            sampleIds: firstPage.slice(0, 5).map((item) => normalizeId(item.crsrdId)).filter(Boolean),
+            failureReason: diagnosticReason(
+              firstPage.length === 0 ? "no-items" : "no-matching-crsrdId",
+              firstPage.slice(0, 5).map((item) => normalizeId(item.crsrdId)).filter(Boolean),
+              [],
+            ),
+          }),
+        };
+      }
+
+      const matchIndex = match.page.items.findIndex((item) => normalizeId(item.crsrdId) === targetId);
+      const matchedKeys = Object.keys(match.record).slice(0, 80);
+      const extraction = extractSignals(match.record, match.pageNo, matchIndex);
+      const signals = extraction.signals;
+
+      if (signals.length > 0) {
+        signalCache.set(targetId, signals);
+      } else {
+        signalCache.delete(targetId);
+      }
+
+      return {
+        signals,
+        status: signals.length > 0 ? "success" : "empty",
+        debug: buildSignalDebug(baseDebug, {
+          apiStatus: match.page.debug.apiStatus,
+          itemCount: match.page.debug.itemCount,
+          matched: true,
+          matchedId: targetId,
+          matchedName: String(match.record.crsrdNm ?? ""),
+          apiPageNo: match.pageNo,
+          apiItemIndex: matchIndex,
+          via: match.page.debug.via,
+          responseReceived: match.page.debug.responseReceived,
+          sampleIds: match.page.debug.sampleIds,
+          matchedKeys,
+          signalDiagnostics: extraction.diagnostics,
+          failureReason: signals.length > 0 ? "" : diagnosticReason("no-signal-fields", match.page.debug.sampleIds, matchedKeys),
+        }),
+      };
+    } catch (error) {
+      signalCache.delete(targetId);
+      const apiError = error as TrafficApiRequestError;
+      const errorDebug = apiError?.debug;
+      return {
+        signals: [],
+        status: "error",
+        debug: buildSignalDebug(baseDebug, {
+          apiStatus: errorDebug?.apiStatus ?? "error",
+          itemCount: errorDebug?.itemCount ?? 0,
+          via: errorDebug?.via ?? "proxy",
+          responseReceived: errorDebug?.responseReceived ?? false,
+          sampleIds: errorDebug?.sampleIds ?? [],
+          failureReason:
+            errorDebug?.apiStatus === "parse-error"
+              ? "parse-error"
+              : errorDebug?.apiStatus === "network-error" || errorDebug?.apiStatus === "timeout"
+                ? "network-error-or-timeout"
+                : errorDebug?.apiStatus?.startsWith("api-error:")
+                  ? "api-error"
+                  : "request-failed",
+        }),
+      };
+    }
+  })();
+
+  signalPromiseCache.set(targetId, promise);
+  try {
+    return await promise;
+  } finally {
+    signalPromiseCache.delete(targetId);
+  }
+}
+
 export function fetchSelectedIntersectionSignals(crsrdId: string, options?: { forceRefresh?: boolean }): Promise<SignalLoadResult> { return loadSignalsForId(crsrdId, options?.forceRefresh === true); }
