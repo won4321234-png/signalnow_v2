@@ -31,7 +31,8 @@ export class TrafficApiRequestError extends Error {
   }
 }
 
-async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>(options: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {\n  const { path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH } = options;
+async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>(options: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
+  const { path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH } = options;
   const normalizedServiceKey = normalizeServiceKey(serviceKey);
   const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); if (options.crsrdId) directParams.set("crsrdId", options.crsrdId); directParams.set("serviceKey", normalizedServiceKey);
   const proxyParams = new URLSearchParams(directParams);
