@@ -50,7 +50,8 @@ function AppInner() {
   const [viewMode, setViewMode] = useState<ViewMode>("driver");
   const [driveMode, setDriveMode] = useState(false);
   const [driveModeChooserOpen, setDriveModeChooserOpen] = useState(true);
-  const [autoNearestIntersection, setAutoNearestIntersection] = useState<NearestIntersection | null>(null);\n  const [driveSpeedMps, setDriveSpeedMps] = useState<number | null>(null);
+  const [autoNearestIntersection, setAutoNearestIntersection] = useState<NearestIntersection | null>(null);
+  const [driveSpeedMps, setDriveSpeedMps] = useState<number | null>(null);
   const [driveAccelerationMps2, setDriveAccelerationMps2] = useState<number | null>(null);
   const [driveAccuracyM, setDriveAccuracyM] = useState<number | null>(null);
   const [driveHistory, setDriveHistory] = useState<DriveHistoryItem[]>([]);
