@@ -24,6 +24,7 @@ interface DrivingSignalGuideProps {
   signals: TrafficSignal[];
   loading?: boolean;
   distanceMeters?: number | null;
+  speedMps?: number | null;
   history?: DriveHistoryItem[];
   onExit: () => void;
   onOpenDetails: () => void;
@@ -114,6 +115,7 @@ export function DrivingSignalGuide({
   signals,
   loading = false,
   distanceMeters,
+  speedMps = null,
   history = [],
   onExit,
   onOpenDetails,
@@ -122,9 +124,11 @@ export function DrivingSignalGuide({
   const distance = distanceMeters !== null && distanceMeters !== undefined && Number.isFinite(distanceMeters)
     ? Math.round(distanceMeters)
     : null;
-  const leadSeconds = currentSignals[0]?.remainingSeconds === undefined
+  const leadSignal = currentSignals.find((signal) => signal.movement === "Straight") ?? currentSignals[0];
+  const leadSeconds = leadSignal?.remainingSeconds === undefined
     ? null
-    : Math.max(0, Math.floor(currentSignals[0].remainingSeconds));
+    : Math.max(0, Math.floor(leadSignal.remainingSeconds));
+  const speedKmh = speedMps !== null && Number.isFinite(speedMps) ? Math.round(speedMps * 3.6) : null;
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-[90] overflow-hidden bg-[#05090b] text-white">
@@ -189,10 +193,9 @@ export function DrivingSignalGuide({
               )}
             </div>
 
-            <div className="mt-2 flex items-center justify-center gap-5 border-t border-white/[0.06] py-5 text-white/30">
-              <div className="flex items-center gap-2 text-xs font-bold"><Volume2 className="size-4" /> 신호 변경 알림</div>
-              <span className="text-[10px]">•</span>
-              <span className="text-xs font-bold">핀 선택 없이 자동 전환</span>
+            <div className="mt-1 flex items-end justify-between gap-6 border-t border-white/[0.06] py-5 text-white/30">
+              <div className="flex items-center gap-2 text-xs font-bold"><Volume2 className="size-4" /> 신호 변경 알림 · 핀 선택 없이 자동 전환</div>
+              <div className="shrink-0 text-right"><p className="text-[9px] font-bold text-white/25">현재 속도</p><p className="mt-0.5 text-[clamp(2.5rem,7vw,4.5rem)] font-light leading-none tabular-nums text-white">{speedKmh ?? "—"}<span className="ml-1 text-base font-normal text-white/40">km/h</span></p></div>
             </div>
           </div>
         </section>
