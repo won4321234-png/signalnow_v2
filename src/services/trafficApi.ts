@@ -1,5 +1,4 @@
 export const TRAFFIC_API_BASE_PATH = "/api/traffic";
-export const TRAFFIC_API_DIRECT_BASE_URL = "https://apis.data.go.kr/B551982/rti";
 
 export interface KlidIntersectionRecord { stdgCd?: string; lclgvNm?: string; crsrdId?: string; crsrdNm?: string; mapCtptIntLat?: string | number; mapCtptIntLot?: string | number; crsrdEngNm?: string; laneWdth?: string; lmtSpdTypeNm?: string; lmtSpd?: string; regDt?: string; totDt?: string; }
 export interface KlidSignalRecord {
@@ -13,7 +12,7 @@ export interface TrafficApiDebugMeta { apiStatus: string; via: "direct" | "proxy
 export interface TrafficApiPageResult<T> { totalCount: number; items: T[]; debug: TrafficApiDebugMeta; }
 export interface TrafficApiClientOptions { serviceKey: string; stdgCd: string; pageNo?: number; numOfRows?: number; basePath?: string; }
 
-const TRAFFIC_API_TIMEOUT_MS = 8000;
+const TRAFFIC_API_TIMEOUT_MS = 9000;
 function debugEnabled() { return new URLSearchParams(window.location.search).get("debug") === "1"; }
 function debugLog(message: string, data: Record<string, unknown>) { if (debugEnabled()) console.log(`[SignalNow debug] ${message}`, data); }
 function logDev(message: string, ...args: unknown[]): void { if (import.meta.env.DEV) console.log(`[SignalNow] ${message}`, ...args); }
@@ -31,77 +30,116 @@ export class TrafficApiRequestError extends Error {
   }
 }
 
-async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
-  const normalizedServiceKey = normalizeServiceKey(serviceKey);
-  const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); directParams.set("serviceKey", normalizedServiceKey);
-  const proxyParams = new URLSearchParams(directParams);
-  const directUrl = `${TRAFFIC_API_DIRECT_BASE_URL}${path}?${directParams.toString()}`;
-  const proxyUrl = new URL(`${basePath}${path}`, window.location.origin); proxyUrl.search = proxyParams.toString();
-  logDev("서울 교차로 API 요청", path, { pageNo, numOfRows, stdgCd });
-  debugLog("tl_drct_info request started", { endpoint: path, pageNo, numOfRows, stdgCd: path === "/tl_drct_info" ? undefined : stdgCd });
+async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>({ path, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH }: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
+  const proxyParams = new URLSearchParams();
+  proxyParams.set("pageNo", String(pageNo));
+  proxyParams.set("numOfRows", String(numOfRows));
+  proxyParams.set("type", "JSON");
+  proxyParams.set("stdgCd", stdgCd);
 
-  const tryFetchAndParse = async (url: string, via: "direct" | "proxy") => {
-    const controller = new AbortController();
-    let timeoutId: number | undefined;
-    let timedOut = false;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-        reject(new DOMException("Traffic API request timed out.", "TimeoutError"));
-      }, TRAFFIC_API_TIMEOUT_MS);
-    });
-    const requestPromise = (async () => {
-      debugLog("request pending", { endpoint: path, via, timeoutMs: TRAFFIC_API_TIMEOUT_MS });
-      const response = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-      debugLog("response received", { endpoint: path, via, status: response.status, ok: response.ok });
-      if (!response.ok) return { response, payload: null as KlidResponseEnvelope | null };
-      debugLog("parse-start", { endpoint: path, status: response.status, via });
-      const payload = await parseJsonResponse(response);
-      debugLog("parse-complete", { endpoint: path, status: response.status, via });
-      return { response, payload };
-    })();
-    try {
-      return await Promise.race([requestPromise, timeoutPromise]);
-    } catch (error) {
-      debugLog(timedOut || (error instanceof DOMException && error.name === "AbortError") ? "FAILURE: request timeout" : "FAILURE: network/parse request", { endpoint: path, via, timeout: timedOut });
-      throw error;
-    } finally {
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    }
-  };
+  const proxyUrl = new URL(`${basePath}${path}`, window.location.origin);
+  proxyUrl.search = proxyParams.toString();
 
-  let result: { response: Response; payload: KlidResponseEnvelope | null };
-  let via: "direct" | "proxy" = "direct";
+  logDev("Traffic API request", path, { pageNo, numOfRows, stdgCd });
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), TRAFFIC_API_TIMEOUT_MS);
   try {
-    result = await tryFetchAndParse(directUrl, "direct");
-  } catch {
-    via = "proxy";
-    debugLog("proxy fallback start", { endpoint: path });
-    try {
-      result = await tryFetchAndParse(proxyUrl.toString(), "proxy");
-    } catch (error) {
-      throw new TrafficApiRequestError("Traffic API direct and proxy requests failed.", { apiStatus: "network-error", via: "proxy", responseReceived: false, itemCount: 0, sampleIds: [] });
+    const response = await fetch(proxyUrl.toString(), {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const bodyText = await response.text();
+
+    if (!response.ok) {
+      let upstreamMessage = "";
+      try {
+        const errorPayload = JSON.parse(bodyText) as Record<string, unknown>;
+        upstreamMessage = typeof errorPayload.error === "string" ? errorPayload.error : "";
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw new TrafficApiRequestError(
+        upstreamMessage || `Traffic API request failed with status ${response.status}.`,
+        {
+          apiStatus: String(response.status),
+          via: "proxy",
+          responseReceived: true,
+          itemCount: 0,
+          sampleIds: [],
+        },
+      );
     }
-  }
 
-  const { response, payload } = result;
-  if (!response.ok) {
-    const debug: TrafficApiDebugMeta = { apiStatus: String(response.status), via, responseReceived: true, itemCount: 0, sampleIds: [] };
-    debugLog("FAILURE: API request", { endpoint: path, status: response.status, ok: response.ok, via });
-    throw new TrafficApiRequestError(`Traffic API request failed with status ${response.status}.`, debug);
-  }
-  if (!payload) {
-    throw new TrafficApiRequestError("Traffic API response payload is missing.", { apiStatus: "parse-error", via, responseReceived: true, itemCount: 0, sampleIds: [] });
-  }
+    let payload: KlidResponseEnvelope;
+    try {
+      payload = JSON.parse(bodyText) as KlidResponseEnvelope;
+    } catch {
+      throw new TrafficApiRequestError("Traffic API returned invalid JSON.", {
+        apiStatus: "parse-error",
+        via: "proxy",
+        responseReceived: true,
+        itemCount: 0,
+        sampleIds: [],
+      });
+    }
 
-  const envelope = payload.response ?? payload; const header = envelope.header; const body = envelope.body; const items = toArray(body?.items?.item); const itemCount = items.length;
-  const sampleIds = items.slice(0, 5).map((item) => String((item as Record<string, unknown>).crsrdId ?? "").trim()).filter(Boolean);
-  const debug: TrafficApiDebugMeta = { apiStatus: String(response.status), via, responseReceived: true, itemCount, sampleIds };
-  debugLog("tl_drct_info response", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount, sampleIds });
-  logDev("서울 교차로 API 응답", path, { resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: body?.totalCount ?? 0, itemCount });
-  if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") { const message = header.resultMsg ?? "Traffic API returned an error."; if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") return { totalCount: 0, items: [], debug }; throw new TrafficApiRequestError(message, { ...debug, apiStatus: `api-error:${header.resultCode}` }); }
-  return { totalCount: Number(body?.totalCount ?? 0), items: items as T[], debug };
+    const envelope = payload.response ?? payload;
+    const header = envelope.header;
+    const body = envelope.body;
+    const items = toArray(body?.items?.item);
+    const itemCount = items.length;
+    const sampleIds = items
+      .slice(0, 5)
+      .map((item) => String((item as Record<string, unknown>).crsrdId ?? "").trim())
+      .filter(Boolean);
+    const debug: TrafficApiDebugMeta = {
+      apiStatus: String(response.status),
+      via: "proxy",
+      responseReceived: true,
+      itemCount,
+      sampleIds,
+    };
+
+    logDev("Traffic API response", path, {
+      resultCode: header?.resultCode ?? null,
+      resultMsg: header?.resultMsg ?? null,
+      totalCount: body?.totalCount ?? 0,
+      itemCount,
+    });
+
+    if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") {
+      if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") {
+        return { totalCount: 0, items: [], debug };
+      }
+      throw new TrafficApiRequestError(header.resultMsg ?? "Traffic API returned an error.", {
+        ...debug,
+        apiStatus: `api-error:${header.resultCode}`,
+      });
+    }
+
+    return {
+      totalCount: Number(body?.totalCount ?? 0),
+      items: items as T[],
+      debug,
+    };
+  } catch (error) {
+    if (error instanceof TrafficApiRequestError) throw error;
+    const timedOut = error instanceof DOMException && error.name === "AbortError";
+    throw new TrafficApiRequestError(
+      timedOut ? "Traffic API request timed out." : "Traffic API request failed.",
+      {
+        apiStatus: timedOut ? "timeout" : "network-error",
+        via: "proxy",
+        responseReceived: false,
+        itemCount: 0,
+        sampleIds: [],
+      },
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function fetchTrafficMapInfo(options: TrafficApiClientOptions): Promise<TrafficApiPageResult<KlidIntersectionRecord>> { return fetchTrafficApiPage<KlidIntersectionRecord>({ ...options, path: "/crsrd_map_info" }); }
