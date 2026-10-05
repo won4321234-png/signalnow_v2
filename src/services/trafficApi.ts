@@ -35,7 +35,8 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   proxyParams.set("pageNo", String(pageNo));
   proxyParams.set("numOfRows", String(numOfRows));
   proxyParams.set("type", "JSON");
-  proxyParams.set("stdgCd", stdgCd);\n  if (crsrdId?.trim()) proxyParams.set("crsrdId", crsrdId.trim());
+  proxyParams.set("stdgCd", stdgCd);
+  if (crsrdId?.trim()) proxyParams.set("crsrdId", crsrdId.trim());
 
   const proxyUrl = new URL(`${basePath}${path}`, window.location.origin);
   proxyUrl.search = proxyParams.toString();
