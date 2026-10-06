@@ -8,7 +8,7 @@ import { DIRECTION_LABELS_KO, MOVEMENT_LABELS_KO, PHASE_LABELS, phaseColor, type
 import type { ApproachDirection, Intersection, MovementType, TrafficSignal } from "@/types/traffic";
 import "./signal-navigation.css";
 
-type GeoState = { lat: number; lng: number; accuracy: number; speed: number; heading: number | null };
+type GeoState = { lat: number; lng: number; accuracy: number; speed: number; heading: number | null; timestamp: number };
 type SignalSnapshot = { signals: TrafficSignal[]; receivedAt: number };
 type DirectionKey = "North" | "East" | "South" | "West";
 type HudSignal = { movement: MovementType; signal?: TrafficSignal };
@@ -172,9 +172,10 @@ export function SignalNavigationPage() {
     const watchId = navigator.geolocation.watchPosition(
       (p) => {
         setPosition((previous) => {
-          const speed = p.coords.speed ?? previous?.speed ?? 0;
+          const derivedSpeed = previous ? distanceMeters(previous, { lat: p.coords.latitude, lng: p.coords.longitude }) / Math.max(1, (p.timestamp - previous.timestamp) / 1000) : 0;
+          const speed = p.coords.speed != null && p.coords.speed >= 0 ? p.coords.speed : derivedSpeed;
           const heading = Number.isFinite(p.coords.heading ?? NaN) ? p.coords.heading : previous?.heading ?? null;
-          return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed, heading };
+          return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed, heading, timestamp: p.timestamp };
         });
       },
       () => undefined,
