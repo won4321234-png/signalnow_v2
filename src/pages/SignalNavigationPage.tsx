@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Camera, LocateFixed, MapPin, Navigation, RefreshCw, Search, Signal, Smartphone, X } from "lucide-react";
+import { ArrowLeft, Camera, LocateFixed, MapPin, Navigation, RefreshCw, Search, Signal, Smartphone, X } from "lucide-react";
 
 import { configureTrafficRegion, fetchSelectedIntersectionSignals, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
 import { getRoadGeometry } from "@/services/roadGeometryService";
@@ -149,7 +149,7 @@ export function SignalNavigationPage() {
     const watchId = navigator.geolocation.watchPosition(
       (p) => {
         setPosition((previous) => {
-          const speed = p.coords.speed ?? (previous ? distanceMeters(previous, { lat: p.coords.latitude, lng: p.coords.longitude }) / Math.max(1, (p.timestamp - (previous as GeoState & { timestamp?: number }).timestamp!) / 1000) : 0);
+          const speed = p.coords.speed ?? previous?.speed ?? 0;
           const heading = Number.isFinite(p.coords.heading ?? NaN) ? p.coords.heading : previous?.heading ?? null;
           return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed, heading };
         });
@@ -324,6 +324,24 @@ export function SignalNavigationPage() {
           <button className={cameraEnabled ? "is-active" : ""} onClick={() => void toggleCamera}><Camera size={17} />{cameraEnabled ? "카메라 끄기" : "카메라 켜기"}</button>
         </div>
         {cameraError && <div className="sn-camera-error">{cameraError}</div>}
+      </section>
+
+      <section className="sn-all-signals">
+        <div className="sn-all-signals-head"><strong>전체 실제 신호 데이터</strong><span>{signalSnapshot?.signals.length ?? 0}개</span></div>
+        <div className="sn-all-signals-grid">
+          {(signalSnapshot?.signals ?? []).map((signal, index) => {
+            const seconds = secondsFor(signal);
+            const color = signalColor(signal);
+            return <div key={`${signal.direction}-${signal.movement}-${index}`} className="sn-all-signal-row">
+              <span className="sn-all-dir">{DIRECTION_LABELS_KO[signal.direction]}</span>
+              <span className="sn-all-movement">{MOVEMENT_LABELS_KO[signal.movement]}</span>
+              <SignalPill color={color} active />
+              <b>{PHASE_LABELS[signal.state]}</b>
+              <strong>{seconds ?? "—"}{seconds !== undefined ? "초" : ""}</strong>
+            </div>;
+          })}
+          {!signalSnapshot?.signals.length && <div className="sn-all-empty">선택된 실제 교차로의 신호 데이터가 로딩되면 모든 방향·이동 유형이 여기에 표시됩니다.</div>}
+        </div>
       </section>
 
       <footer className="sn-footer">
