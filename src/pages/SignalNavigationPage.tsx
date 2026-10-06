@@ -285,7 +285,39 @@ export function SignalNavigationPage() {
         <button className="sn-top-action" onClick={() => setSearchOpen(true)} aria-label="교차로 검색"><Search size={18} /></button>
       </header>
 
-      <section className="sn-hud">
+      <section className="sn-video-hud">
+      <div className="sn-video-hud-top">
+        <span>{nearest ? (distance !== null ? formatDistance(distance) : "—") : "—"}</span>
+        <span>{signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "—"}</span>
+        <i />
+      </div>
+      <div className="sn-video-signal">
+        <div className="sn-video-lamps">
+          <span className="sn-video-lamp red" />
+          <span className="sn-video-lamp yellow" />
+          <span className="sn-video-lamp green" />
+        </div>
+        <div className="sn-video-bars">
+          {hudSignals.map(({ movement, signal }) => {
+            const seconds = secondsFor(signal);
+            const color = signalColor(signal);
+            return <div key={movement} className="sn-video-bar">
+              <span className={`sn-video-fill ${color}`} style={{ height: signal ? `${Math.max(10, Math.min(100, ((seconds ?? 0) / Math.max(1, signal.cycleSeconds)) * 100))}%` : "8%" }} />
+            </div>;
+          })}
+        </div>
+        <div className="sn-video-countdown">
+          <strong>{preferredSignal ? secondsFor(preferredSignal) ?? "—" : "—"}</strong>
+          <small>SEC</small>
+        </div>
+      </div>
+      <div className="sn-video-caption">
+        <strong>{nearest?.crsrdNm ?? "교차로 탐색 중"}</strong>
+        <span>{preferredSignal ? `${MOVEMENT_LABELS_KO[preferredSignal.movement]} · ${PHASE_LABELS[preferredSignal.state]}` : signalLoading ? "실제 신호 데이터 불러오는 중" : "실제 신호 데이터 대기 중"}</span>
+      </div>
+    </section>
+
+    <section className="sn-hud">
         <div className="sn-route-card">
           <div className="sn-route-row">
             <div className="sn-turn-icon"><Navigation size={24} /></div>
