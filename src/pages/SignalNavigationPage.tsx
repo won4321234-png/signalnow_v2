@@ -52,7 +52,7 @@ function formatSpeed(speedMps: number): string {
 }
 
 function signalColor(signal?: TrafficSignal): SignalColor {
-  return signal ? phaseColor(signal.state) : "none";
+  return signal ? phaseColor(signal.state) : "red";
 }
 
 function countdown(signal?: TrafficSignal, snapshotAt?: number, now = Date.now()): number | undefined {
