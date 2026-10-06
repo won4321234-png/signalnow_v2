@@ -1,127 +1,220 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Camera, LocateFixed, MapPin, Navigation, RefreshCw, Search, Signal, Smartphone, X } from "lucide-react";
 
-import { configureTrafficRegion, fetchSelectedIntersectionSignals, loadIntersectionsForViewport } from "@/services/viewportTrafficService";
-import { getRoadGeometry } from "@/services/roadGeometryService";
-import { DEFAULT_TRAFFIC_REGION, TRAFFIC_REGIONS, type TrafficRegionId } from "@/data/regions";
-import { DIRECTION_LABELS_KO, MOVEMENT_LABELS_KO, PHASE_LABELS, phaseColor, type SignalColor } from "@/lib/signal";
-import type { ApproachDirection, Intersection, MovementType, TrafficSignal } from "@/types/traffic";
+import {
+  configureTrafficRegion,
+  fetchSelectedIntersectionSignals,
+  loadIntersectionsForViewport,
+} from "@/services/viewportTrafficService";
+import {
+  DEFAULT_TRAFFIC_REGION,
+  TRAFFIC_REGIONS,
+  type TrafficRegionId,
+} from "@/data/regions";
+import { DIRECTION_LABELS_KO, type SignalColor } from "@/lib/signal";
+import type { ApproachDirection, Intersection, TrafficSignal } from "@/types/traffic";
 import "./signal-navigation.css";
 
-type GeoState = { lat: number; lng: number; accuracy: number; speed: number; heading: number | null; timestamp: number };
-type SignalSnapshot = { signals: TrafficSignal[]; receivedAt: number };
-type DirectionKey = "North" | "East" | "South" | "West";
-type HudSignal = { movement: MovementType; signal?: TrafficSignal };
+type GeoState = {
+  lat: number;
+  lng: number;
+  accuracy: number;
+  speed: number;
+  acceleration: number;
+  heading: number | null;
+  timestamp: number;
+};
 
-const directionAngles: Record<DirectionKey, number> = { North: 0, East: 90, South: 180, West: 270 };
-const directionOrder: DirectionKey[] = ["North", "East", "South", "West"];
-const movementOrder: MovementType[] = ["Left Turn", "Straight", "Right Turn"];
+type LiveIntersection = {
+  intersection: Intersection;
+  distance: number;
+  signal?: TrafficSignal;
+  receivedAt?: number;
+};
+
+const directionAngles: Record<ApproachDirection, number> = {
+  North: 0,
+  NorthEast: 45,
+  East: 90,
+  SouthEast: 135,
+  South: 180,
+  SouthWest: 225,
+  West: 270,
+  NorthWest: 315,
+};
 
 function getRegionFromStorage(): TrafficRegionId {
   const stored = window.localStorage.getItem("signalnow-region");
   return stored === "ulsan" || stored === "seoul" ? stored : DEFAULT_TRAFFIC_REGION;
 }
 
-function normalizeAngle(value: number): number { return ((value % 360) + 360) % 360; }
-function angularDistance(a: number, b: number): number { const d = Math.abs(normalizeAngle(a) - normalizeAngle(b)); return Math.min(d, 360 - d); }
+function normalizeAngle(value: number): number {
+  return ((value % 360) + 360) % 360;
+}
 
-function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+function angularDistance(a: number, b: number): number {
+  const d = Math.abs(normalizeAngle(a) - normalizeAngle(b));
+  return Math.min(d, 360 - d);
+}
+
+function distanceMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
   const r = 6371008.8;
   const p1 = a.lat * Math.PI / 180;
   const p2 = b.lat * Math.PI / 180;
   const dp = (b.lat - a.lat) * Math.PI / 180;
   const dl = (b.lng - a.lng) * Math.PI / 180;
-  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  const h =
+    Math.sin(dp / 2) ** 2 +
+    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
   return r * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
 }
 
-function bearing(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+function bearing(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
   const y = Math.sin((b.lng - a.lng) * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180);
-  const x = Math.cos(a.lat * Math.PI / 180) * Math.sin(b.lat * Math.PI / 180) - Math.sin(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.cos((b.lng - a.lng) * Math.PI / 180);
+  const x =
+    Math.cos(a.lat * Math.PI / 180) * Math.sin(b.lat * Math.PI / 180) -
+    Math.sin(a.lat * Math.PI / 180) *
+      Math.cos(b.lat * Math.PI / 180) *
+      Math.cos((b.lng - a.lng) * Math.PI / 180);
   return normalizeAngle(Math.atan2(y, x) * 180 / Math.PI);
 }
 
-function formatClock(date = new Date()): string {
-  return new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit", hour12: false }).format(date);
-}
-function getApproachIntersections(position: GeoState | null, intersections: Intersection[], heading: number | null) {
-  if (!position) return [];
-  return intersections.map((intersection) => ({
-    intersection,
-    distance: distanceMeters(position, { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot }),
-  })).filter((item) => item.distance <= 1500).filter((item) => {
-    if (heading === null) return true;
-    return angularDistance(heading, bearing(position, { lat: item.intersection.mapCtptIntLat, lng: item.intersection.mapCtptIntLot })) <= 75;
-  }).sort((a, b) => a.distance - b.distance).slice(0, 6);
-}
-function predictSignalOutcome(distance: number | null, speedMps: number, signal?: TrafficSignal) {
-  if (distance === null || !signal) return { label: "신호 데이터 대기", detail: "실제 신호를 불러오는 중입니다.", etaSeconds: undefined as number | undefined, recommendedSpeed: undefined as number | undefined };
-  const etaSeconds = Math.max(1, Math.round(distance / Math.max(speedMps, 0.5)));
-  const remaining = signal.remainingSeconds ?? 0;
-  if (signal.state === "protected-Movement-Allowed" && etaSeconds <= remaining) return { label: "통과 가능", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 녹색 ${remaining}초 유지`, etaSeconds, recommendedSpeed: distance / Math.max(1, remaining) * 3.6 };
-  if (signal.state === "protected-Movement-Allowed") return { label: "정지 예상", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 녹색 종료까지 ${remaining}초`, etaSeconds, recommendedSpeed: undefined };
-  if (signal.state === "protected-clearance") return { label: "신호 전환 중", detail: `현재 신호 잔여 ${remaining}초 · 도착 예상 ${etaSeconds}초`, etaSeconds, recommendedSpeed: undefined };
-  return { label: etaSeconds <= remaining + signal.cycleSeconds ? "대기 후 통과 예상" : "정지 예상", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 적색 잔여 ${remaining}초`, etaSeconds, recommendedSpeed: undefined };
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)}m`;
-  return `${(meters / 1000).toFixed(1)}km`;
-}
-
-function formatSpeed(speedMps: number): string {
-  if (!Number.isFinite(speedMps) || speedMps < 0.5) return "0";
-  return String(Math.round(speedMps * 3.6));
+function closestDirection(angle: number): ApproachDirection {
+  return (Object.entries(directionAngles) as Array<[ApproachDirection, number]>)
+    .sort((a, b) => angularDistance(angle, a[1]) - angularDistance(angle, b[1]))[0][0];
 }
 
 function signalColor(signal?: TrafficSignal): SignalColor {
-  return signal ? phaseColor(signal.state) : "red";
+  if (!signal) return "red";
+  if (signal.state === "protected-Movement-Allowed") return "green";
+  if (signal.state === "protected-clearance") return "yellow";
+  return "red";
 }
 
-function countdown(signal?: TrafficSignal, snapshotAt?: number, now = Date.now()): number | undefined {
-  if (!signal?.remainingSeconds || snapshotAt === undefined) return signal?.remainingSeconds;
-  return Math.max(0, Math.floor(signal.remainingSeconds - Math.max(0, now - snapshotAt) / 1000));
+function formatClock(date = new Date()): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
-function findBestDirection(heading: number | null, geometry: Awaited<ReturnType<typeof getRoadGeometry>>): ApproachDirection | null {
-  if (heading === null) return null;
-  const approaches = geometry ? Object.entries(geometry.directionMatches) : [];
-  if (!approaches.length) return null;
-  const reverseHeading = normalizeAngle(heading + 180);
-  return approaches
-    .map(([direction, approach]) => ({ direction: direction as ApproachDirection, score: approach ? angularDistance(approach.bearing, reverseHeading) : 999 }))
-    .sort((a, b) => a.score - b.score)[0]?.direction ?? null;
+function formatDistance(meters: number): string {
+  if (meters < 1000) return Math.max(10, Math.round(meters / 10) * 10) + "m";
+  return (meters / 1000).toFixed(1) + "km";
 }
 
-function nearestIntersection(position: GeoState, intersections: Intersection[], heading: number | null): Intersection | null {
-  const ranked = intersections
-    .map((intersection) => {
-      const d = distanceMeters(position, { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot });
-      const approachBearing = bearing(position, { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot });
-      const headingPenalty = heading === null ? 0 : Math.max(0, angularDistance(heading, approachBearing) - 45) * 3;
-      return { intersection, score: d + headingPenalty, distance: d };
-    })
-    .filter((item) => item.distance <= 3000)
-    .sort((a, b) => a.score - b.score);
-  return ranked[0]?.intersection ?? null;
+function formatSpeed(speedMps: number): string {
+  if (!Number.isFinite(speedMps) || speedMps < 0.3) return "0";
+  return String(Math.round(speedMps * 3.6));
 }
 
-function SignalPill({ color, active }: { color: SignalColor; active: boolean }) {
-  return <span className={`sn-signal-pill sn-signal-${color} ${active ? "is-active" : ""}`} aria-hidden />;
+function countdown(
+  signal: TrafficSignal | undefined,
+  receivedAt: number | undefined,
+  now: number,
+): number | undefined {
+  if (!signal || (signal.remainingSeconds === undefined && signal.remainingSeconds !== 0)) return undefined;
+  if (!receivedAt) return Math.max(0, Math.round(signal.remainingSeconds));
+  return Math.max(
+    0,
+    Math.floor(signal.remainingSeconds - Math.max(0, now - receivedAt) / 1000),
+  );
 }
 
-function SignalColumn({ label, signal, seconds }: { label: string; signal?: TrafficSignal; seconds?: number }) {
-  const color = signalColor(signal);
-  const isActive = Boolean(signal);
+function findStraightSignal(
+  signals: TrafficSignal[],
+  position: GeoState,
+  intersection: Intersection,
+): TrafficSignal | undefined {
+  const approachDirection = closestDirection(
+    bearing(
+      { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot },
+      { lat: position.lat, lng: position.lng },
+    ),
+  );
+
   return (
-    <div className={`sn-column sn-column-${color}`}>
-      <div className="sn-column-label">{label}</div>
-      <div className="sn-lamp-stack">
-        <SignalPill color="red" active={color === "red"} />
-        <SignalPill color="yellow" active={color === "yellow"} />
-        <SignalPill color="green" active={color === "green"} />
+    signals.find((s) => s.direction === approachDirection && s.movement === "Straight") ??
+    signals.find((s) => s.direction === approachDirection && s.movement === "Bus") ??
+    signals.find((s) => s.direction === approachDirection)
+  );
+}
+
+function getApproaches(
+  position: GeoState | null,
+  intersections: Intersection[],
+): Array<{ intersection: Intersection; distance: number }> {
+  if (!position) return [];
+
+  return intersections
+    .map((intersection) => {
+      const target = {
+        lat: intersection.mapCtptIntLat,
+        lng: intersection.mapCtptIntLot,
+      };
+      const distance = distanceMeters(position, target);
+      const direction = bearing(position, target);
+      const deviation = position.heading === null ? 0 : angularDistance(position.heading, direction);
+      return { intersection, distance, deviation };
+    })
+    .filter((item) => item.distance <= 1800)
+    .filter((item) => position.heading === null || item.deviation <= 90)
+    .sort((a, b) => {
+      const scoreA = a.distance + Math.max(0, a.deviation - 35) * 8;
+      const scoreB = b.distance + Math.max(0, b.deviation - 35) * 8;
+      return scoreA - scoreB;
+    })
+    .slice(0, 4)
+    .map(({ intersection, distance }) => ({ intersection, distance }));
+}
+
+function SignalBar({
+  item,
+  now,
+  maxHeight,
+}: {
+  item: LiveIntersection;
+  now: number;
+  maxHeight: number;
+}) {
+  const seconds = countdown(item.signal, item.receivedAt, now);
+  const color = signalColor(item.signal);
+  const etaSeconds =
+    item.distance > 0
+      ? Math.max(1, Math.round(item.distance / Math.max(0.8, 12)))
+      : 1;
+  const height = Math.max(82, Math.min(maxHeight, 82 + etaSeconds * 3.2));
+  const activeRatio = item.signal?.remainingSeconds !== undefined
+    ? Math.min(1, Math.max(0.12, item.signal.remainingSeconds / 60))
+    : 0.2;
+
+  return (
+    <div className="sn-wave-column" style={{ height: height + "px" }}>
+      <div className="sn-wave-track">
+        <div className="sn-wave-segment sn-wave-red" />
+        <div className="sn-wave-segment sn-wave-yellow" />
+        <div className="sn-wave-segment sn-wave-green" />
+        <div
+          className={"sn-wave-active sn-wave-active-" + color}
+          style={{ height: activeRatio * 100 + "%" }}
+        />
+        <div
+          className="sn-wave-now"
+          style={{
+            bottom: Math.min(94, Math.max(8, activeRatio * 72 + 14)) + "%",
+          }}
+        />
       </div>
-      <div className={`sn-column-seconds ${isActive ? "is-live" : ""}`}>{seconds ?? "—"}</div>
+      <span className="sn-wave-index">{item.intersection.crsrdNm}</span>
+      <strong className={"sn-wave-count sn-wave-count-" + color}>
+        {seconds ?? "—"}
+      </strong>
     </div>
   );
 }
@@ -130,37 +223,41 @@ export function SignalNavigationPage() {
   const [regionId, setRegionId] = useState<TrafficRegionId>(() => getRegionFromStorage());
   const [intersections, setIntersections] = useState<Intersection[]>([]);
   const [position, setPosition] = useState<GeoState | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [signalSnapshot, setSignalSnapshot] = useState<SignalSnapshot | null>(null);
-  const [roadGeometry, setRoadGeometry] = useState<Awaited<ReturnType<typeof getRoadGeometry>>>(null);
-  const [loading, setLoading] = useState(true);
-  const [signalLoading, setSignalLoading] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [cameraError, setCameraError] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [live, setLive] = useState<LiveIntersection[]>([]);
   const [now, setNow] = useState(() => Date.now());
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const requestRef = useRef(0);
+  const lastSignalLoadRef = useRef("");
 
   const region = TRAFFIC_REGIONS[regionId];
 
-  const loadAll = useCallback(async (nextRegion: TrafficRegionId) => {
-    const requestId = ++requestRef.current;
-    setLoading(true);
-    configureTrafficRegion(nextRegion);
-    try {
-      const all = await loadIntersectionsForViewport({ south: 0, west: 0, north: 0, east: 0 }, { loadAll: true });
-      if (requestId !== requestRef.current) return;
-      setIntersections(all);
-      setSelectedId((current) => current && all.some((item) => item.crsrdId === current) ? current : null);
-    } finally {
-      if (requestId === requestRef.current) setLoading(false);
-    }
-  }, []);
+  const loadNearby = useCallback(
+    async (nextRegion: TrafficRegionId, currentPosition: GeoState | null) => {
+      configureTrafficRegion(nextRegion);
+      const center = currentPosition ?? TRAFFIC_REGIONS[nextRegion].center;
+      const latDelta = currentPosition ? 0.03 : 0.06;
+      const lngDelta = currentPosition ? 0.035 : 0.07;
 
-  useEffect(() => { void loadAll(regionId); }, [loadAll, regionId]);
+      try {
+        const result = await loadIntersectionsForViewport(
+          {
+            south: center.lat - latDelta,
+            west: center.lng - lngDelta,
+            north: center.lat + latDelta,
+            east: center.lng + lngDelta,
+          },
+          { loadAll: false },
+        );
+        setIntersections(result);
+      } catch {
+        setIntersections([]);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void loadNearby(regionId, position);
+  }, [loadNearby, regionId]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 250);
@@ -169,273 +266,271 @@ export function SignalNavigationPage() {
 
   useEffect(() => {
     if (!navigator.geolocation) return;
+
     const watchId = navigator.geolocation.watchPosition(
       (p) => {
         setPosition((previous) => {
-          const derivedSpeed = previous ? distanceMeters(previous, { lat: p.coords.latitude, lng: p.coords.longitude }) / Math.max(1, (p.timestamp - previous.timestamp) / 1000) : 0;
-          const speed = p.coords.speed != null && p.coords.speed >= 0 ? p.coords.speed : derivedSpeed;
-          const heading = Number.isFinite(p.coords.heading ?? NaN) ? p.coords.heading : previous?.heading ?? null;
-          return { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed, heading, timestamp: p.timestamp };
+          const current = { lat: p.coords.latitude, lng: p.coords.longitude };
+          const elapsed =
+            previous && p.timestamp > previous.timestamp
+              ? (p.timestamp - previous.timestamp) / 1000
+              : 0;
+          const derivedSpeed =
+            previous && elapsed > 0
+              ? distanceMeters(previous, current) / elapsed
+              : 0;
+          const speed =
+            p.coords.speed != null &&
+            Number.isFinite(p.coords.speed) &&
+            p.coords.speed >= 0
+              ? p.coords.speed
+              : derivedSpeed;
+          const acceleration =
+            previous && elapsed > 0 ? (speed - previous.speed) / elapsed : 0;
+
+          return {
+            lat: current.lat,
+            lng: current.lng,
+            accuracy: p.coords.accuracy,
+            speed,
+            acceleration,
+            heading:
+              p.coords.heading != null && Number.isFinite(p.coords.heading)
+                ? p.coords.heading
+                : previous?.heading ?? null,
+            timestamp: p.timestamp,
+          };
         });
       },
       () => undefined,
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000,
+      },
     );
+
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  const nearest = useMemo(() => position ? nearestIntersection(position, intersections, position.heading) : null, [position, intersections]);
-
   useEffect(() => {
-    if (!nearest) return;
-    setSelectedId(nearest.crsrdId);
-  }, [nearest?.crsrdId]);
+    if (!position) return;
+    const timeout = window.setTimeout(() => {
+      void loadNearby(regionId, position);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [position?.lat, position?.lng, regionId, loadNearby]);
 
-  useEffect(() => {
-    if (!selectedId) return;
-    const intersection = intersections.find((item) => item.crsrdId === selectedId);
-    if (!intersection) return;
-    const controller = new AbortController();
-    setSignalLoading(true);
-    Promise.all([
-      fetchSelectedIntersectionSignals(selectedId, { forceRefresh: false }),
-      getRoadGeometry(selectedId, intersection.mapCtptIntLat, intersection.mapCtptIntLot, { signal: controller.signal }),
-    ]).then(([signalResult, geometry]) => {
-      if (controller.signal.aborted) return;
-      setSignalSnapshot({ signals: signalResult.signals, receivedAt: Date.now() });
-      setRoadGeometry(geometry);
-    }).finally(() => { if (!controller.signal.aborted) setSignalLoading(false); });
-    return () => controller.abort();
-  }, [selectedId, intersections]);
+  const candidates = useMemo(
+    () => getApproaches(position, intersections),
+    [position, intersections],
+  );
 
-  useEffect(() => {
-    if (!selectedId) return;
-    const interval = window.setInterval(async () => {
-      const result = await fetchSelectedIntersectionSignals(selectedId, { forceRefresh: true });
-      if (result.status === "success" && result.signals.length) setSignalSnapshot({ signals: result.signals, receivedAt: Date.now() });
-    }, 10000);
-    return () => window.clearInterval(interval);
-  }, [selectedId]);
+  const loadSignals = useCallback(async () => {
+    if (!position || candidates.length === 0) return;
+    const requestId = ++requestRef.current;
+    const next: LiveIntersection[] = [];
 
-  const activeDirection = useMemo(() => findBestDirection(position?.heading ?? null, roadGeometry), [position?.heading, roadGeometry]);
-  const fallbackDirection = useMemo(() => {
-    if (!position || !selectedId) return null;
-    const intersection = intersections.find((item) => item.crsrdId === selectedId);
-    if (!intersection) return null;
-    const toIntersection = bearing(position, { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot });
-    const reverse = normalizeAngle(toIntersection + 180);
-    return directionOrder.reduce((best, direction) => angularDistance(reverse, directionAngles[direction]) < angularDistance(reverse, directionAngles[best]) ? direction : best, "North" as DirectionKey);
-  }, [position, selectedId, intersections]);
-
-  const signalDirection = activeDirection ?? fallbackDirection;
-  const visibleSignals = useMemo(() => {
-    const all = signalSnapshot?.signals ?? [];
-    if (!signalDirection) return all;
-    return all.filter((signal) => signal.direction === signalDirection);
-  }, [signalSnapshot, signalDirection]);
-
-  const hudSignals: HudSignal[] = useMemo(() => movementOrder.map((movement) => ({
-    movement,
-    signal: visibleSignals.find((item) => item.movement === movement),
-  })), [visibleSignals]);
-
-  const preferredSignal = hudSignals.find((item) => item.movement === "Straight")?.signal ?? visibleSignals.find((item) => item.movement === "Bus") ?? visibleSignals[0];
-  const distance = position && nearest ? distanceMeters(position, { lat: nearest.mapCtptIntLat, lng: nearest.mapCtptIntLot }) : null;
-  const approachingIntersections = useMemo(() => getApproachIntersections(position, intersections, position?.heading ?? null), [position, intersections]);
-  const prediction = useMemo(() => predictSignalOutcome(distance, position?.speed ?? 0, preferredSignal), [distance, position?.speed, preferredSignal]);
-  const currentSpeed = position ? Math.round(Math.max(0, position.speed) * 3.6) : null;
-  const filteredIntersections = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return intersections.slice(0, 80);
-    return intersections.filter((item) => `${item.crsrdNm} ${item.crsrdEngNm ?? ""} ${item.crsrdId}`.toLowerCase().includes(normalized)).slice(0, 80);
-  }, [intersections, query]);
-
-  const toggleCamera = useCallback(async () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      setCameraEnabled(false);
-      return;
-    }
-    try {
-      setCameraError("");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraEnabled(true);
-    } catch {
-      setCameraError("카메라 권한을 허용하면 영상 위에 실시간 신호 HUD를 표시할 수 있습니다.");
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const startCamera = async () => {
-      if (!navigator.mediaDevices?.getUserMedia) return;
+    for (const candidate of candidates.slice(0, 4)) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
-        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        setCameraEnabled(true);
+        const result = await fetchSelectedIntersectionSignals(
+          candidate.intersection.crsrdId,
+          { forceRefresh: true },
+        );
+        if (requestId !== requestRef.current) return;
+
+        next.push({
+          intersection: candidate.intersection,
+          distance: candidate.distance,
+          signal: findStraightSignal(result.signals, position, candidate.intersection),
+          receivedAt: Date.now(),
+        });
       } catch {
-        setCameraError("카메라 권한이 없으면 실제 주행 화면 대신 내비게이션 HUD만 표시됩니다.");
+        next.push({
+          intersection: candidate.intersection,
+          distance: candidate.distance,
+        });
       }
-    };
-    void startCamera();
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach((track) => track.stop()); };
-  }, []);
+    }
 
+    setLive(next);
+    lastSignalLoadRef.current = new Date().toISOString();
+  }, [candidates, position]);
 
-  const chooseIntersection = useCallback((id: string) => {
-    setSelectedId(id);
-    setSearchOpen(false);
-  }, []);
+  useEffect(() => {
+    if (!position || candidates.length === 0) return;
+    void loadSignals();
+    const interval = window.setInterval(() => void loadSignals(), 5000);
+    return () => window.clearInterval(interval);
+  }, [loadSignals, position, candidates.length]);
 
-  const switchRegion = useCallback((next: TrafficRegionId) => {
-    window.localStorage.setItem("signalnow-region", next);
-    setRegionId(next);
-    setSelectedId(null);
-    setSignalSnapshot(null);
-    setRoadGeometry(null);
-  }, []);
+  const current = live[0];
+  const nextSignals = live.slice(0, 3);
+  const currentCountdown = countdown(current?.signal, current?.receivedAt, now);
+  const currentColor = signalColor(current?.signal);
+  const speedKmh = position ? formatSpeed(position.speed) : "—";
+  const acceleration = position
+    ? (position.acceleration >= 0 ? "+" : "") + position.acceleration.toFixed(1)
+    : "—";
 
-  const secondsFor = (signal?: TrafficSignal) => countdown(signal, signalSnapshot?.receivedAt, now);
+  const switchRegion = (nextRegion: TrafficRegionId) => {
+    window.localStorage.setItem("signalnow-region", nextRegion);
+    setRegionId(nextRegion);
+    setIntersections([]);
+    setLive([]);
+  };
 
   return (
-    <main className="sn-page">
-      <video ref={videoRef} className={`sn-camera ${cameraEnabled ? "is-visible" : ""}`} muted playsInline aria-hidden />
-      <div className={`sn-camera-placeholder ${cameraEnabled ? "is-hidden" : ""}`}>
-        <div className="sn-placeholder-grid" />
-        <div className="sn-placeholder-copy">
-          <Navigation size={34} />
-          <strong>SignalNow 내비게이션</strong>
-          <span>실제 교차로·실시간 신호 데이터를 기준으로 표시합니다.</span>
-        </div>
-      </div>
-      <div className="sn-vignette" />
-
-      <header className="sn-topbar">
-        <a href="/" className="sn-back" aria-label="SignalNow로 돌아가기"><ArrowLeft size={19} /></a>
-        <div className="sn-brand"><span>Signal</span><b>Now</b><small>NAV</small></div>
-        <div className="sn-region">
-          {(Object.keys(TRAFFIC_REGIONS) as TrafficRegionId[]).map((id) => (
-            <button key={id} className={id === regionId ? "is-active" : ""} onClick={() => switchRegion(id)}>{TRAFFIC_REGIONS[id].name.replace("특별시", "").replace("광역시", "")}</button>
+    <main className="sn-nav-page">
+      <div className="sn-nav-map" aria-hidden="true">
+        <div className="sn-map-grid" />
+        <div className="sn-map-road sn-map-road-main" />
+        <div className="sn-map-road sn-map-road-cross" />
+        <div className="sn-map-route">
+          {live.map((item, index) => (
+            <div
+              key={item.intersection.crsrdId}
+              className={"sn-map-stop " + (index === 0 ? "is-current" : "")}
+              style={{ top: (18 + index * 22) + "%" }}
+            >
+              <span />
+              <b>{item.intersection.crsrdNm}</b>
+              <small>{formatDistance(item.distance)}</small>
+            </div>
           ))}
         </div>
-        <button className="sn-top-action" onClick={() => setSearchOpen(true)} aria-label="교차로 검색"><Search size={18} /></button>
-      </header>
+      </div>
 
-      <section className="sn-video-hud">
-  <div className="sn-nav-header"><div className="sn-time">{formatClock()}</div><button className="sn-nav-back" onClick={() => window.history.back()} aria-label="뒤로">‹</button><div className="sn-nav-status"><span>{region.name}</span><span>{currentSpeed === null ? "GPS 대기" : `${currentSpeed} km/h`}</span></div></div>
-  <div className="sn-nav-timeline"><div className="sn-timeline-line" />
-    {approachingIntersections.map(({ intersection: item, distance: itemDistance }) => {
-      const signal = item.crsrdId === nearest?.crsrdId ? preferredSignal : item.signals?.find((s) => s.movement === "Straight") ?? item.signals?.[0];
-      const seconds = item.crsrdId === nearest?.crsrdId ? secondsFor(signal) : signal?.remainingSeconds;
-      const color = signal ? signalColor(signal) : "red";
-      return <button key={item.crsrdId} className={`sn-timeline-item ${item.crsrdId === nearest?.crsrdId ? "is-current" : ""}`} onClick={() => setSelectedId(item.crsrdId)}><span className="sn-timeline-dot" /><span className="sn-timeline-name">{item.crsrdNm}</span><span className="sn-timeline-distance">{formatDistance(itemDistance)}</span><span className={`sn-timeline-signal sn-signal-${color}`}>{seconds ?? "—"}<small>s</small></span></button>;
-    })}
-    {!approachingIntersections.length && <div className="sn-timeline-empty">현재 위치와 진행 방향을 확인하는 중</div>}
-  </div>
-  <div className="sn-signal-graph"><div className="sn-graph-head"><span>{nearest?.crsrdNm ?? "교차로 탐색 중"}</span><b>{signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "—"}</b></div>
-    <div className="sn-graph-body"><div className="sn-graph-bars">{hudSignals.map(({ movement, signal }) => { const seconds = secondsFor(signal); const color = signalColor(signal); const ratio = signal ? Math.max(.08, Math.min(1, (seconds ?? 0) / Math.max(1, signal.cycleSeconds))) : .08; return <div key={movement} className="sn-graph-column"><div className={`sn-graph-fill ${color}`} style={{height:`${ratio*100}%`}} /><span>{MOVEMENT_LABELS_KO[movement].slice(0,1)}</span></div>; })}</div><div className="sn-graph-count"><strong>{preferredSignal ? secondsFor(preferredSignal) ?? "—" : "—"}</strong><small>초</small></div></div>
-    <div className="sn-graph-meta"><span>{distance !== null ? `${formatDistance(distance)} 앞` : "거리 계산 중"}</span><span>{prediction.label}</span></div>
-  </div>
-  <div className="sn-speed-panel"><div><span>현재 속력</span><strong>{currentSpeed === null ? "—" : currentSpeed}</strong><small>km/h</small></div><div><span>도착 예상</span><strong>{prediction.etaSeconds ?? "—"}</strong><small>초</small></div><div><span>권장 속력</span><strong>{prediction.recommendedSpeed === undefined ? "—" : Math.round(prediction.recommendedSpeed)}</strong><small>km/h</small></div></div>
-  <div className={`sn-prediction ${prediction.label === "통과 가능" ? "is-pass" : prediction.label === "정지 예상" ? "is-stop" : ""}`}><strong>{prediction.label}</strong><span>{prediction.detail}</span></div>
-</section>
+      <section className="sn-nav-panel" aria-label="신호 내비게이션">
+        <header className="sn-panel-header">
+          <div className="sn-time-pill">{formatClock()}</div>
+          <div className="sn-panel-region">
+            {region.name.replace("특별시", "").replace("광역시", "")}
+          </div>
+        </header>
 
-<section className="sn-hud">
-        <div className="sn-route-card">
-          <div className="sn-route-row">
-            <div className="sn-turn-icon"><Navigation size={24} /></div>
-            <div className="sn-route-copy">
-              <span>{nearest ? "다음 신호 교차로" : "교차로 데이터 탐색 중"}</span>
-              <strong>{nearest?.crsrdNm ?? region.name}</strong>
-              <small>{distance !== null ? `${formatDistance(distance)} 앞 · ${signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "방향 확인 중"}` : "현재 위치를 허용하면 가장 가까운 실제 교차로를 자동 선택합니다."}</small>
+        <div className="sn-panel-route">
+          <button
+            className="sn-route-back"
+            onClick={() => window.history.back()}
+            aria-label="뒤로"
+          >
+            <span />
+          </button>
+          <div className="sn-route-copy">
+            <span className="sn-route-kicker">
+              ↑ {current?.intersection.crsrdNm ?? "진행 경로 탐색 중"}
+            </span>
+            <strong>
+              ↑ {live[1]?.intersection.crsrdNm ?? current?.intersection.crsrdNm ?? "교차로"}
+            </strong>
+          </div>
+        </div>
+
+        <div className="sn-target-row">
+          <div className="sn-target-distance">
+            <strong>{current ? Math.round(current.distance) : "—"}</strong>
+            <span>m</span>
+            <small>교차로까지</small>
+          </div>
+          <div className={"sn-target-signal sn-target-signal-" + currentColor}>
+            <strong>{currentCountdown ?? "—"}</strong>
+            <span>s</span>
+          </div>
+        </div>
+
+        <div className="sn-wave-chart">
+          {nextSignals.length > 0 ? (
+            nextSignals.map((item) => (
+              <SignalBar
+                key={item.intersection.crsrdId}
+                item={item}
+                now={now}
+                maxHeight={205}
+              />
+            ))
+          ) : (
+            <div className="sn-chart-empty">
+              <span>●</span>
+              <p>현재 위치에서<br />실시간 교차로를 찾는 중</p>
             </div>
-            <div className="sn-route-distance">{distance !== null ? formatDistance(distance) : "—"}</div>
+          )}
+        </div>
+
+        <div className="sn-speed-readout">
+          <strong>{speedKmh}</strong>
+          <span>km/h</span>
+        </div>
+
+        <div className="sn-acceleration">
+          <span>{acceleration} m/s²</span>
+          <div className="sn-accel-scale">
+            <i className="sn-accel-left">−</i>
+            <b className="sn-accel-zero">0</b>
+            <i className="sn-accel-right">+</i>
+            <em
+              style={{
+                left:
+                  Math.max(
+                    8,
+                    Math.min(92, 50 + (position?.acceleration ?? 0) * 18),
+                  ) + "%",
+              }}
+            />
           </div>
         </div>
 
-        <div className="sn-signal-card">
-          <div className="sn-signal-card-head">
-            <div><span>실시간 교통신호</span><strong>{preferredSignal ? PHASE_LABELS[preferredSignal.state] : signalLoading ? "불러오는 중" : "데이터 선택 대기"}</strong></div>
-            <div className="sn-live"><i /> LIVE</div>
-          </div>
-          <div className="sn-columns">
-            {hudSignals.map(({ movement, signal }) => <SignalColumn key={movement} label={MOVEMENT_LABELS_KO[movement]} signal={signal} seconds={secondsFor(signal)} />)}
-          </div>
-          <div className="sn-signal-meta">
-            <span>{signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "전체 방향"}</span>
-            <span>{preferredSignal ? `${MOVEMENT_LABELS_KO[preferredSignal.movement]} 기준` : "실제 API 신호 데이터"}</span>
-          </div>
-        </div>
+        <div className="sn-route-list">
+          {live.slice(0, 5).map((item) => {
+            const seconds = countdown(item.signal, item.receivedAt, now);
+            const color = signalColor(item.signal);
+            const direction = position
+              ? closestDirection(
+                  bearing(
+                    {
+                      lat: item.intersection.mapCtptIntLat,
+                      lng: item.intersection.mapCtptIntLot,
+                    },
+                    { lat: position.lat, lng: position.lng },
+                  ),
+                )
+              : null;
 
-        <div className="sn-speed-card">
-          <span>현재 속도</span>
-          <strong>{position ? formatSpeed(position.speed) : "—"}</strong>
-          <small>km/h</small>
-        </div>
-
-        <div className="sn-actions">
-          <button onClick={() => { if (navigator.geolocation) navigator.geolocation.getCurrentPosition(() => undefined); }}><LocateFixed size={17} />내 위치</button>
-          <button onClick={() => void loadAll(regionId)}><RefreshCw size={17} />데이터 새로고침</button>
-          <button className={cameraEnabled ? "is-active" : ""} onClick={() => void toggleCamera}><Camera size={17} />{cameraEnabled ? "카메라 끄기" : "카메라 켜기"}</button>
-        </div>
-        {cameraError && <div className="sn-camera-error">{cameraError}</div>}
-      </section>
-
-      <section className="sn-all-signals">
-        <div className="sn-all-signals-head"><strong>전체 실제 신호 데이터</strong><span>{signalSnapshot?.signals.length ?? 0}개</span></div>
-        <div className="sn-all-signals-grid">
-          {(signalSnapshot?.signals ?? []).map((signal, index) => {
-            const seconds = secondsFor(signal);
-            const color = signalColor(signal);
-            return <div key={`${signal.direction}-${signal.movement}-${index}`} className="sn-all-signal-row">
-              <span className="sn-all-dir">{DIRECTION_LABELS_KO[signal.direction]}</span>
-              <span className="sn-all-movement">{MOVEMENT_LABELS_KO[signal.movement]}</span>
-              <SignalPill color={color} active />
-              <b>{PHASE_LABELS[signal.state]}</b>
-              <strong>{seconds ?? "—"}{seconds !== undefined ? "초" : ""}</strong>
-            </div>;
+            return (
+              <div key={item.intersection.crsrdId} className="sn-route-item">
+                <span className={"sn-route-dot sn-route-dot-" + color} />
+                <div>
+                  <strong>
+                    {direction ? DIRECTION_LABELS_KO[direction] : "↑"}{" "}
+                    {item.intersection.crsrdNm}
+                  </strong>
+                  <small>
+                    {formatDistance(item.distance)} · {seconds ?? "—"}초
+                  </small>
+                </div>
+              </div>
+            );
           })}
-          {!signalSnapshot?.signals.length && <div className="sn-all-empty">선택된 실제 교차로의 신호 데이터가 로딩되면 모든 방향·이동 유형이 여기에 표시됩니다.</div>}
         </div>
+
+        <footer className="sn-panel-footer">
+          <span className="sn-live-dot" />
+          <span>실시간 신호 데이터</span>
+          <span>{lastSignalLoadRef.current ? "LIVE" : "연결 중"}</span>
+        </footer>
       </section>
 
-      <footer className="sn-footer">
-        <div><Signal size={15} /><span>{loading ? "전체 교차로 데이터 로딩 중" : `${intersections.length.toLocaleString()}개 실제 교차로 데이터`}</span></div>
-        <div><Smartphone size={15} /><span>실시간 위치 · 신호 연동</span></div>
-      </footer>
-
-      {searchOpen && (
-        <div className="sn-search-backdrop" role="dialog" aria-modal="true">
-          <div className="sn-search-panel">
-            <div className="sn-search-head">
-              <div><MapPin size={19} /><strong>전체 교차로</strong><span>{intersections.length.toLocaleString()}개</span></div>
-              <button onClick={() => setSearchOpen(false)} aria-label="닫기"><X size={20} /></button>
-            </div>
-            <label className="sn-search-input"><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="교차로명 또는 ID 검색" /></label>
-            <div className="sn-search-list">
-              {filteredIntersections.map((item) => (
-                <button key={item.crsrdId} className={item.crsrdId === selectedId ? "is-selected" : ""} onClick={() => chooseIntersection(item.crsrdId)}>
-                  <span>{item.crsrdNm}</span><small>{item.crsrdId} · {item.lclgvNm ?? ""}</small>
-                </button>
-              ))}
-              {!filteredIntersections.length && <div className="sn-empty">검색 결과가 없습니다.</div>}
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="sn-region-switcher" aria-label="교통 데이터 지역">
+        {(Object.keys(TRAFFIC_REGIONS) as TrafficRegionId[]).map((id) => (
+          <button
+            key={id}
+            className={id === regionId ? "is-active" : ""}
+            onClick={() => switchRegion(id)}
+          >
+            {TRAFFIC_REGIONS[id].name.replace("특별시", "").replace("광역시", "")}
+          </button>
+        ))}
+      </div>
     </main>
   );
 }
-
-export default SignalNavigationPage;
