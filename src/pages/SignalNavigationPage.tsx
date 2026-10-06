@@ -41,6 +41,29 @@ function bearing(a: { lat: number; lng: number }, b: { lat: number; lng: number 
   return normalizeAngle(Math.atan2(y, x) * 180 / Math.PI);
 }
 
+function formatClock(date = new Date()): string {
+  return new Intl.DateTimeFormat("ko-KR", { hour: "numeric", minute: "2-digit", hour12: false }).format(date);
+}
+function getApproachIntersections(position: GeoState | null, intersections: Intersection[], heading: number | null) {
+  if (!position) return [];
+  return intersections.map((intersection) => ({
+    intersection,
+    distance: distanceMeters(position, { lat: intersection.mapCtptIntLat, lng: intersection.mapCtptIntLot }),
+  })).filter((item) => item.distance <= 1500).filter((item) => {
+    if (heading === null) return true;
+    return angularDistance(heading, bearing(position, { lat: item.intersection.mapCtptIntLat, lng: item.intersection.mapCtptIntLot })) <= 75;
+  }).sort((a, b) => a.distance - b.distance).slice(0, 6);
+}
+function predictSignalOutcome(distance: number | null, speedMps: number, signal?: TrafficSignal) {
+  if (distance === null || !signal) return { label: "신호 데이터 대기", detail: "실제 신호를 불러오는 중입니다.", etaSeconds: undefined as number | undefined, recommendedSpeed: undefined as number | undefined };
+  const etaSeconds = Math.max(1, Math.round(distance / Math.max(speedMps, 0.5)));
+  const remaining = signal.remainingSeconds ?? 0;
+  if (signal.state === "protected-Movement-Allowed" && etaSeconds <= remaining) return { label: "통과 가능", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 녹색 ${remaining}초 유지`, etaSeconds, recommendedSpeed: distance / Math.max(1, remaining) * 3.6 };
+  if (signal.state === "protected-Movement-Allowed") return { label: "정지 예상", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 녹색 종료까지 ${remaining}초`, etaSeconds, recommendedSpeed: undefined };
+  if (signal.state === "protected-clearance") return { label: "신호 전환 중", detail: `현재 신호 잔여 ${remaining}초 · 도착 예상 ${etaSeconds}초`, etaSeconds, recommendedSpeed: undefined };
+  return { label: etaSeconds <= remaining + signal.cycleSeconds ? "대기 후 통과 예상" : "정지 예상", detail: `현재 속력 기준 약 ${etaSeconds}초 후 도착 · 적색 잔여 ${remaining}초`, etaSeconds, recommendedSpeed: undefined };
+}
+
 function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.max(10, Math.round(meters / 10) * 10)}m`;
   return `${(meters / 1000).toFixed(1)}km`;
@@ -217,6 +240,9 @@ export function SignalNavigationPage() {
 
   const preferredSignal = hudSignals.find((item) => item.movement === "Straight")?.signal ?? visibleSignals.find((item) => item.movement === "Bus") ?? visibleSignals[0];
   const distance = position && nearest ? distanceMeters(position, { lat: nearest.mapCtptIntLat, lng: nearest.mapCtptIntLot }) : null;
+  const approachingIntersections = useMemo(() => getApproachIntersections(position, intersections, position?.heading ?? null), [position, intersections]);
+  const prediction = useMemo(() => predictSignalOutcome(distance, position?.speed ?? 0, preferredSignal), [distance, position?.speed, preferredSignal]);
+  const currentSpeed = position ? Math.round(Math.max(0, position.speed) * 3.6) : null;
   const filteredIntersections = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return intersections.slice(0, 80);
@@ -286,38 +312,25 @@ export function SignalNavigationPage() {
       </header>
 
       <section className="sn-video-hud">
-      <div className="sn-video-hud-top">
-        <span>{nearest ? (distance !== null ? formatDistance(distance) : "—") : "—"}</span>
-        <span>{signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "—"}</span>
-        <i />
-      </div>
-      <div className="sn-video-signal">
-        <div className="sn-video-lamps">
-          <span className="sn-video-lamp red" />
-          <span className="sn-video-lamp yellow" />
-          <span className="sn-video-lamp green" />
-        </div>
-        <div className="sn-video-bars">
-          {hudSignals.map(({ movement, signal }) => {
-            const seconds = secondsFor(signal);
-            const color = signalColor(signal);
-            return <div key={movement} className="sn-video-bar">
-              <span className={`sn-video-fill ${color}`} style={{ height: signal ? `${Math.max(10, Math.min(100, ((seconds ?? 0) / Math.max(1, signal.cycleSeconds)) * 100))}%` : "8%" }} />
-            </div>;
-          })}
-        </div>
-        <div className="sn-video-countdown">
-          <strong>{preferredSignal ? secondsFor(preferredSignal) ?? "—" : "—"}</strong>
-          <small>SEC</small>
-        </div>
-      </div>
-      <div className="sn-video-caption">
-        <strong>{nearest?.crsrdNm ?? "교차로 탐색 중"}</strong>
-        <span>{preferredSignal ? `${MOVEMENT_LABELS_KO[preferredSignal.movement]} · ${PHASE_LABELS[preferredSignal.state]}` : signalLoading ? "실제 신호 데이터 불러오는 중" : "실제 신호 데이터 대기 중"}</span>
-      </div>
-    </section>
+  <div className="sn-nav-header"><div className="sn-time">{formatClock()}</div><button className="sn-nav-back" onClick={() => window.history.back()} aria-label="뒤로">‹</button><div className="sn-nav-status"><span>{region.name}</span><span>{currentSpeed === null ? "GPS 대기" : `${currentSpeed} km/h`}</span></div></div>
+  <div className="sn-nav-timeline"><div className="sn-timeline-line" />
+    {approachingIntersections.map(({ intersection: item, distance: itemDistance }) => {
+      const signal = item.crsrdId === nearest?.crsrdId ? preferredSignal : item.signals?.find((s) => s.movement === "Straight") ?? item.signals?.[0];
+      const seconds = item.crsrdId === nearest?.crsrdId ? secondsFor(signal) : signal?.remainingSeconds;
+      const color = signal ? signalColor(signal) : "red";
+      return <button key={item.crsrdId} className={`sn-timeline-item ${item.crsrdId === nearest?.crsrdId ? "is-current" : ""}`} onClick={() => setSelectedId(item.crsrdId)}><span className="sn-timeline-dot" /><span className="sn-timeline-name">{item.crsrdNm}</span><span className="sn-timeline-distance">{formatDistance(itemDistance)}</span><span className={`sn-timeline-signal sn-signal-${color}`}>{seconds ?? "—"}<small>s</small></span></button>;
+    })}
+    {!approachingIntersections.length && <div className="sn-timeline-empty">현재 위치와 진행 방향을 확인하는 중</div>}
+  </div>
+  <div className="sn-signal-graph"><div className="sn-graph-head"><span>{nearest?.crsrdNm ?? "교차로 탐색 중"}</span><b>{signalDirection ? DIRECTION_LABELS_KO[signalDirection] : "—"}</b></div>
+    <div className="sn-graph-body"><div className="sn-graph-bars">{hudSignals.map(({ movement, signal }) => { const seconds = secondsFor(signal); const color = signalColor(signal); const ratio = signal ? Math.max(.08, Math.min(1, (seconds ?? 0) / Math.max(1, signal.cycleSeconds))) : .08; return <div key={movement} className="sn-graph-column"><div className={`sn-graph-fill ${color}`} style={{height:`${ratio*100}%`}} /><span>{MOVEMENT_LABELS_KO[movement].slice(0,1)}</span></div>; })}</div><div className="sn-graph-count"><strong>{preferredSignal ? secondsFor(preferredSignal) ?? "—" : "—"}</strong><small>초</small></div></div>
+    <div className="sn-graph-meta"><span>{distance !== null ? `${formatDistance(distance)} 앞` : "거리 계산 중"}</span><span>{prediction.label}</span></div>
+  </div>
+  <div className="sn-speed-panel"><div><span>현재 속력</span><strong>{currentSpeed === null ? "—" : currentSpeed}</strong><small>km/h</small></div><div><span>도착 예상</span><strong>{prediction.etaSeconds ?? "—"}</strong><small>초</small></div><div><span>권장 속력</span><strong>{prediction.recommendedSpeed === undefined ? "—" : Math.round(prediction.recommendedSpeed)}</strong><small>km/h</small></div></div>
+  <div className={`sn-prediction ${prediction.label === "통과 가능" ? "is-pass" : prediction.label === "정지 예상" ? "is-stop" : ""}`}><strong>{prediction.label}</strong><span>{prediction.detail}</span></div>
+</section>
 
-    <section className="sn-hud">
+<section className="sn-hud">
         <div className="sn-route-card">
           <div className="sn-route-row">
             <div className="sn-turn-icon"><Navigation size={24} /></div>
