@@ -271,7 +271,27 @@ export function SignalNavigationPage() {
     }
   }, []);
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  useEffect(() => {
+    let cancelled = false;
+    const startCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setCameraEnabled(true);
+      } catch {
+        setCameraError("카메라 권한이 없으면 실제 주행 화면 대신 내비게이션 HUD만 표시됩니다.");
+      }
+    };
+    void startCamera();
+    return () => { cancelled = true; streamRef.current?.getTracks().forEach((track) => track.stop()); };
+  }, []);
+
 
   const chooseIntersection = useCallback((id: string) => {
     setSelectedId(id);
