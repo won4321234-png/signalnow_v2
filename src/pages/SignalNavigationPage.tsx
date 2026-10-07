@@ -349,8 +349,9 @@ export function SignalNavigationPage() {
   }, [position?.lat, position?.lng]);
 
   useEffect(() => {
+    if (!position) return;
     void loadNearby(regionId, position);
-  }, [loadNearby, regionId]);
+  }, [loadNearby, regionId, position]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
