@@ -476,10 +476,27 @@ export function SignalNavigationPage() {
       position.acceleration.toFixed(1)
     : "0.0";
 
-  const gaugeRatio =
-    analysis.ratio == null
-      ? 0
-      : Math.max(0, Math.min(1.25, analysis.ratio)) / 1.25;
+  const gaugeMax = Math.max(
+    60,
+    Math.ceil(
+      Math.max(
+        analysis.currentSpeed,
+        analysis.targetSpeed ?? 0,
+        1,
+      ) * 1.25 / 10,
+    ) * 10,
+  );
+  const gaugeCurrentPosition = Math.min(
+    96,
+    Math.max(4, (analysis.currentSpeed / gaugeMax) * 100),
+  );
+  const gaugeTargetPosition =
+    analysis.targetSpeed == null
+      ? undefined
+      : Math.min(
+          96,
+          Math.max(4, (analysis.targetSpeed / gaugeMax) * 100),
+        );
 
   return (
     <main className="sn-reference-nav">
@@ -565,17 +582,13 @@ export function SignalNavigationPage() {
             <div className="sn-pass-track">
               <div
                 className="sn-pass-fill"
-                style={{ width: Math.round(gaugeRatio * 100) + "%" }}
+                style={{ width: gaugeCurrentPosition + "%" }}
               />
               {analysis.targetSpeed != null && (
                 <i
                   className="sn-pass-target"
                   style={{
-                    left:
-                      Math.min(
-                        96,
-                        Math.max(4, (analysis.targetSpeed / 130) * 100),
-                      ) + "%",
+                    left: gaugeTargetPosition + "%",
                   }}
                   title={`계산된 목표 속도 ${Math.round(analysis.targetSpeed)} km/h`}
                 />
@@ -583,11 +596,7 @@ export function SignalNavigationPage() {
               <i
                 className="sn-pass-current"
                 style={{
-                  left:
-                    Math.min(
-                      96,
-                      Math.max(4, (analysis.currentSpeed / 130) * 100),
-                    ) + "%",
+                  left: gaugeCurrentPosition + "%",
                 }}
                 title={`현재 속도 ${Math.round(analysis.currentSpeed)} km/h`}
               />
@@ -595,7 +604,7 @@ export function SignalNavigationPage() {
             <div className="sn-pass-scale">
               <span>0</span>
               <span>목표 {analysis.targetSpeed != null ? Math.round(analysis.targetSpeed) : "—"}</span>
-              <span>130</span>
+              <span>{gaugeMax}</span>
             </div>
           </div>
           <p>{analysis.detail}</p>
