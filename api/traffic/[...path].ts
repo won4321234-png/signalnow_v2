@@ -19,7 +19,8 @@ const SUPPORTED_REGIONS = new Set([
   "2600000000", // Busan
   "2700000000", // Daegu
   "2800000000", // Incheon
-  "2900000000", // Gwangju
+  "1200000000", // Jeonnam-Gwangju Integrated Special City (current code)
+  "2900000000", // legacy Gwangju code retained for provider compatibility
   "3000000000", // Daejeon
   "3100000000", // Ulsan
   "3611000000", // Sejong
@@ -28,7 +29,7 @@ const SUPPORTED_REGIONS = new Set([
   "4300000000", // Chungbuk
   "4400000000", // Chungnam
   "4500000000", // Jeonbuk
-  "4600000000", // Jeonnam
+  "4600000000", // legacy Jeollanam-do code retained for provider compatibility
   "4700000000", // Gyeongbuk
   "4800000000", // Gyeongnam
   "5000000000", // Jeju
