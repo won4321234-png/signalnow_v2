@@ -12,6 +12,7 @@ export interface SignalDiagnostic { direction: ApproachDirection; movement: Move
 export interface SignalLoadResult { signals: TrafficSignal[]; status: Exclude<SignalLoadStatus, "loading">; debug: { apiStatus: string; itemCount: number; matched: boolean; matchedId: string; matchedName: string; apiPageNo: number; apiItemIndex: number; via: "direct" | "proxy" | "-"; responseReceived: boolean; sampleIds: string[]; matchedKeys: string[]; signalDiagnostics: SignalDiagnostic[]; failureReason: string }; }
 
 let activeRegionId: TrafficRegionId = DEFAULT_TRAFFIC_REGION;
+let activeQueryStdgCd = TRAFFIC_REGIONS[DEFAULT_TRAFFIC_REGION].stdgCd;
 let regionGeneration = 0;
 let intersectionPageInFlight: Promise<Intersection[]> | null = null;
 const pageCache = new Map<number, KlidIntersectionRecord[]>();
@@ -75,14 +76,32 @@ async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<
   const request = (async (): Promise<Intersection[]> => {
     let raw = pageCache.get(pageNo);
     if (!raw) {
-      const page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS });
+      let queryStdgCd = activeQueryStdgCd;
+      let page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: queryStdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS });
       if (generation !== regionGeneration || regionId !== activeRegionId) return [];
+      // Some provider datasets return an empty city-level query even though intersection
+      // records exist. Retry the first page without the regional filter before declaring
+      // the viewport empty; the viewport bounds still restrict which records are rendered.
+      if (pageNo === 1 && toNumber(page.totalCount) === 0 && page.items.length === 0 && queryStdgCd !== "ALL") {
+        try {
+          const unscoped = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: "ALL", pageNo: 1, numOfRows: INTERSECTION_PAGE_ROWS });
+          if (generation !== regionGeneration || regionId !== activeRegionId) return [];
+          debugLog("intersection region-filter fallback", { region: regionId, requestedStdgCd: region.stdgCd, fallbackTotalCount: unscoped.totalCount, fallbackItemCount: unscoped.items.length, via: unscoped.debug.via });
+          if (toNumber(unscoped.totalCount) > 0 || unscoped.items.length > 0) {
+            activeQueryStdgCd = "ALL";
+            queryStdgCd = "ALL";
+            page = unscoped;
+          }
+        } catch (fallbackError) {
+          debugLog("intersection region-filter fallback failed", { region: regionId, requestedStdgCd: region.stdgCd, error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) });
+        }
+      }
       const reportedTotalCount = toNumber(page.totalCount);
       if (reportedTotalCount > 0) totalPages = Math.max(totalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS));
       raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item));
       if (reportedTotalCount === 0 && raw.length < INTERSECTION_PAGE_ROWS) totalPages = Math.max(totalPages, pageNo);
       pageCache.set(pageNo, raw);
-      debugLog("intersection API page", { region: regionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" });
+      debugLog("intersection API page", { region: regionId, stdgCd: queryStdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" });
     }
     if (generation !== regionGeneration || regionId !== activeRegionId) return [];
     nextPage = Math.max(nextPage, pageNo + 1);
@@ -94,7 +113,7 @@ async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<
   try { return await request; }
   finally { if (intersectionPageInFlight === request) intersectionPageInFlight = null; }
 }
-export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; regionGeneration += 1; intersectionPageInFlight = null; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
+export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; activeQueryStdgCd = TRAFFIC_REGIONS[regionId].stdgCd; regionGeneration += 1; intersectionPageInFlight = null; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: activeQueryStdgCd }); }
 export function getTrafficRegion(): TrafficRegionId { return activeRegionId; }
 export async function loadIntersectionsForViewport(viewport: Viewport, options: IntersectionLoadOptions = {}): Promise<Intersection[]> {
   const isGroundTruthAdmin = window.location.pathname === "/admin/intersections" || window.location.pathname === "/intersection-editor";
@@ -122,7 +141,7 @@ export async function loadIntersectionsForViewport(viewport: Viewport, options: 
       if (!raw) {
         const page = await fetchTrafficMapInfo({
           serviceKey: getServiceKey(),
-          stdgCd: region.stdgCd,
+          stdgCd: activeQueryStdgCd,
           pageNo,
           numOfRows: INTERSECTION_PAGE_ROWS,
         });
@@ -132,7 +151,7 @@ export async function loadIntersectionsForViewport(viewport: Viewport, options: 
         if (reportedTotalCount > 0) knownTotalPages = Math.max(knownTotalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS));
         debugLog("ground-truth intersection API page", {
           region: activeRegionId,
-          stdgCd: region.stdgCd,
+          stdgCd: activeQueryStdgCd,
           pageNo,
           totalCount: page.totalCount,
           totalPages: knownTotalPages,
@@ -158,7 +177,7 @@ export async function loadIntersectionsForViewport(viewport: Viewport, options: 
       const repeatedPage = pageSignature.length > 0 && pageSignature === previousPageSignature;
       debugLog("ground-truth intersection loading", {
         region: activeRegionId,
-        stdgCd: region.stdgCd,
+        stdgCd: activeQueryStdgCd,
         pageNo,
         totalPages: knownTotalPages,
         apiItems: raw.length,
