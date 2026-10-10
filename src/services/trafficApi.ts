@@ -39,7 +39,7 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   const directUrl = `${TRAFFIC_API_DIRECT_BASE_URL}${path}?${directParams.toString()}`;
   const proxyUrl = new URL(`${basePath}${path}`, window.location.origin); proxyUrl.search = proxyParams.toString();
   logDev("서울 교차로 API 요청", path, { pageNo, numOfRows, stdgCd });
-  debugLog("tl_drct_info request started", { endpoint: path, pageNo, numOfRows, stdgCd: path === "/tl_drct_info" ? undefined : stdgCd });
+  debugLog("traffic API request started", { endpoint: path, pageNo, numOfRows, stdgCd, crsrdId: options.crsrdId ?? null, serviceKeySource: normalizedServiceKey === "server-proxy" ? "server-proxy" : "browser-configured" });
 
   const tryFetchAndParse = async (url: string, via: "direct" | "proxy") => {
     const controller = new AbortController();
@@ -122,7 +122,7 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   const envelope = payload.response ?? payload; const header = envelope.header; const body = envelope.body; const items = toArray(body?.items?.item); const itemCount = items.length;
   const sampleIds = items.slice(0, 5).map((item) => String((item as Record<string, unknown>).crsrdId ?? "").trim()).filter(Boolean);
   const debug: TrafficApiDebugMeta = { apiStatus: String(response.status), via, responseReceived: true, itemCount, sampleIds };
-  debugLog("tl_drct_info response", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount, sampleIds });
+  debugLog("traffic API response parsed", { endpoint: path, status: response.status, ok: response.ok, via, hasResponse: Boolean(payload.response), resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: Number(body?.totalCount ?? 0), envelopeKeys: Object.keys(envelope).slice(0, 8), hasBody: Boolean(body), hasItems: Boolean(body?.items), itemType: Array.isArray(body?.items?.item) ? "array" : body?.items?.item ? "object" : "missing", itemCount, sampleIds });
   logDev("서울 교차로 API 응답", path, { resultCode: header?.resultCode ?? null, resultMsg: header?.resultMsg ?? null, totalCount: body?.totalCount ?? 0, itemCount });
   if (header?.resultCode && header.resultCode !== "K0" && header.resultCode !== "00") { const message = header.resultMsg ?? "Traffic API returned an error."; if (header.resultCode === "K3" || header.resultMsg === "NODATA_ERROR") return { totalCount: 0, items: [], debug }; throw new TrafficApiRequestError(message, { ...debug, apiStatus: `api-error:${header.resultCode}` }); }
   return { totalCount: Number(body?.totalCount ?? 0), items: items as T[], debug };
