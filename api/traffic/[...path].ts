@@ -12,7 +12,9 @@ type Response = {
 
 const API_BASE_URL = "https://apis.data.go.kr/B551982/rti";
 const ALLOWED_PATHS = new Set(["crsrd_map_info", "tl_drct_info"]);
-const SUPPORTED_REGIONS = new Set(["1100000000", "3100000000"]);
+// Busan is enabled at the proxy boundary only to verify the upstream provider's
+// actual coverage. The client registry must keep it unavailable until verification.
+const SUPPORTED_REGIONS = new Set(["1100000000", "3100000000", "2600000000"]);
 const MAX_PAGE = 1000;
 const MAX_ROWS = 100;
 const REQUEST_TIMEOUT_MS = 9000;
@@ -127,7 +129,7 @@ export default async function handler(req: Request, res: Response) {
 
     const body = await upstream.text();
     if (!upstream.ok) {
-      console.error("[traffic proxy] upstream error", { endpoint: rawPath, status: upstream.status });
+      console.error("[traffic proxy] upstream error", { endpoint: rawPath, status: upstream.status, stdgCd });
       return jsonResponse(res, upstream.status >= 500 ? 502 : upstream.status, {
         error: "Traffic upstream request failed",
         upstreamStatus: upstream.status,
@@ -150,6 +152,7 @@ export default async function handler(req: Request, res: Response) {
     const timedOut = error instanceof DOMException && error.name === "AbortError";
     console.error("[traffic proxy] request failed", {
       endpoint: rawPath,
+      stdgCd,
       reason: timedOut ? "timeout" : error instanceof Error ? error.message : String(error),
     });
     return jsonResponse(res, 502, { error: timedOut ? "Traffic upstream timeout" : "Traffic upstream unavailable" });
