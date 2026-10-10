@@ -105,7 +105,7 @@ export default async function handler(req: Request, res: Response) {
   }
 
   const stdgCd = stringParam(req.query.stdgCd);
-  if (!SUPPORTED_REGIONS.has(stdgCd)) {
+  if (stdgCd !== "ALL" && !SUPPORTED_REGIONS.has(stdgCd)) {
     return jsonResponse(res, 400, { error: "Unsupported traffic region" });
   }
 
@@ -127,7 +127,7 @@ export default async function handler(req: Request, res: Response) {
   url.searchParams.set("pageNo", String(pageNo));
   url.searchParams.set("numOfRows", String(numOfRows));
   url.searchParams.set("type", "JSON");
-  url.searchParams.set("stdgCd", stdgCd);
+  if (stdgCd !== "ALL") url.searchParams.set("stdgCd", stdgCd);
   if (crsrdId) url.searchParams.set("crsrdId", crsrdId);
   url.searchParams.set("serviceKey", serviceKey);
 
