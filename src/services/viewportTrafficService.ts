@@ -12,6 +12,8 @@ export interface SignalDiagnostic { direction: ApproachDirection; movement: Move
 export interface SignalLoadResult { signals: TrafficSignal[]; status: Exclude<SignalLoadStatus, "loading">; debug: { apiStatus: string; itemCount: number; matched: boolean; matchedId: string; matchedName: string; apiPageNo: number; apiItemIndex: number; via: "direct" | "proxy" | "-"; responseReceived: boolean; sampleIds: string[]; matchedKeys: string[]; signalDiagnostics: SignalDiagnostic[]; failureReason: string }; }
 
 let activeRegionId: TrafficRegionId = DEFAULT_TRAFFIC_REGION;
+let regionGeneration = 0;
+let intersectionPageInFlight: Promise<Intersection[]> | null = null;
 const pageCache = new Map<number, KlidIntersectionRecord[]>();
 const intersectionCache = new Map<string, Intersection>();
 const viewportCache = new Set<string>();
@@ -63,8 +65,36 @@ function normalizeIntersection(record: KlidIntersectionRecord): Intersection | n
 }
 function viewportKey(viewport: Viewport): string { return [activeRegionId, viewport.south, viewport.west, viewport.north, viewport.east].map((value) => typeof value === "string" ? value : value.toFixed(3)).join(":"); }
 function contains(intersection: Intersection, viewport: Viewport): boolean { return intersection.mapCtptIntLat >= viewport.south && intersection.mapCtptIntLat <= viewport.north && intersection.mapCtptIntLot >= viewport.west && intersection.mapCtptIntLot <= viewport.east; }
-async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<Intersection[]> { if (!allowBeyondKnownTotal && totalPages > 0 && nextPage > totalPages) return []; const pageNo = nextPage; let raw = pageCache.get(pageNo); if (!raw) { const region = getActiveRegion(); const page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS }); const reportedTotalCount = toNumber(page.totalCount); if (reportedTotalCount > 0) totalPages = Math.max(totalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS)); raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item)); if (reportedTotalCount === 0 && raw.length < INTERSECTION_PAGE_ROWS) totalPages = Math.max(totalPages, pageNo); pageCache.set(pageNo, raw); debugLog("intersection API page", { region: activeRegionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" }); } nextPage = Math.max(nextPage, pageNo + 1); const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null); for (const intersection of normalized) if (!intersectionCache.has(intersection.crsrdId)) intersectionCache.set(intersection.crsrdId, intersection); return normalized; }
-export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
+async function loadNextIntersectionPage(allowBeyondKnownTotal = false): Promise<Intersection[]> {
+  if (intersectionPageInFlight) return intersectionPageInFlight;
+  if (!allowBeyondKnownTotal && totalPages > 0 && nextPage > totalPages) return [];
+  const generation = regionGeneration;
+  const regionId = activeRegionId;
+  const region = TRAFFIC_REGIONS[regionId];
+  const pageNo = nextPage;
+  const request = (async (): Promise<Intersection[]> => {
+    let raw = pageCache.get(pageNo);
+    if (!raw) {
+      const page = await fetchTrafficMapInfo({ serviceKey: getServiceKey(), stdgCd: region.stdgCd, pageNo, numOfRows: INTERSECTION_PAGE_ROWS });
+      if (generation !== regionGeneration || regionId !== activeRegionId) return [];
+      const reportedTotalCount = toNumber(page.totalCount);
+      if (reportedTotalCount > 0) totalPages = Math.max(totalPages, Math.ceil(reportedTotalCount / INTERSECTION_PAGE_ROWS));
+      raw = page.items.filter((item): item is KlidIntersectionRecord => Boolean(item));
+      if (reportedTotalCount === 0 && raw.length < INTERSECTION_PAGE_ROWS) totalPages = Math.max(totalPages, pageNo);
+      pageCache.set(pageNo, raw);
+      debugLog("intersection API page", { region: regionId, stdgCd: region.stdgCd, pageNo, totalCount: page.totalCount, totalPages, itemCount: raw.length, firstId: raw[0]?.crsrdId ?? "", lastId: raw[raw.length - 1]?.crsrdId ?? "" });
+    }
+    if (generation !== regionGeneration || regionId !== activeRegionId) return [];
+    nextPage = Math.max(nextPage, pageNo + 1);
+    const normalized = raw.map(normalizeIntersection).filter((item): item is Intersection => item !== null);
+    for (const intersection of normalized) if (!intersectionCache.has(intersection.crsrdId)) intersectionCache.set(intersection.crsrdId, intersection);
+    return normalized;
+  })();
+  intersectionPageInFlight = request;
+  try { return await request; }
+  finally { if (intersectionPageInFlight === request) intersectionPageInFlight = null; }
+}
+export function configureTrafficRegion(regionId: TrafficRegionId): void { if (activeRegionId === regionId) return; activeRegionId = regionId; regionGeneration += 1; intersectionPageInFlight = null; pageCache.clear(); intersectionCache.clear(); viewportCache.clear(); signalCache.clear(); signalPromiseCache.clear(); signalPageCache.clear(); signalPagePromiseCache.clear(); signalMatchPageCache.clear(); signalTotalPages = 0; totalPages = 0; nextPage = 1; debugLog("traffic region changed", { regionId, stdgCd: getActiveRegion().stdgCd }); }
 export function getTrafficRegion(): TrafficRegionId { return activeRegionId; }
 export async function loadIntersectionsForViewport(viewport: Viewport, options: IntersectionLoadOptions = {}): Promise<Intersection[]> {
   const isGroundTruthAdmin = window.location.pathname === "/admin/intersections" || window.location.pathname === "/intersection-editor";
