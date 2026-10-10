@@ -31,7 +31,7 @@ function getCountdownSignals(signals: TrafficSignal[], receivedAt: number, now: 
 
 function getStoredRegion(): TrafficRegionId {
   const stored = window.localStorage.getItem("signalnow-region");
-  return stored === "ulsan" || stored === "seoul" ? stored : DEFAULT_TRAFFIC_REGION;
+  return stored && Object.prototype.hasOwnProperty.call(TRAFFIC_REGIONS, stored) ? stored as TrafficRegionId : DEFAULT_TRAFFIC_REGION;
 }
 
 function AppInner() {
