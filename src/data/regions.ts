@@ -5,6 +5,13 @@ export type TrafficRegionId =
 
 export type TrafficRegionAvailability = "active" | "planned";
 
+/**
+ * `stdgCd` follows the current legal-dong code list published by the Ministry of the Interior and Safety.
+ * The 2026-07-01 integration retired 2900000000 (Gwangju) and 4600000000 (Jeollanam-do)
+ * and introduced 1200000000 (Jeonnam-Gwangju Integrated Special City).
+ * Provider coverage is still verified from API responses; an official code alone does not imply coverage.
+ */
+
 export interface TrafficRegion {
   id: TrafficRegionId;
   name: string;
@@ -26,7 +33,7 @@ export const TRAFFIC_REGIONS: Record<TrafficRegionId, TrafficRegion> = {
   busan: queryable("busan", "부산광역시", "2600000000", 35.1796, 129.0756),
   daegu: queryable("daegu", "대구광역시", "2700000000", 35.8714, 128.6014),
   incheon: queryable("incheon", "인천광역시", "2800000000", 37.4563, 126.7052),
-  gwangju: queryable("gwangju", "광주광역시", "2900000000", 35.1595, 126.8526),
+  gwangju: queryable("gwangju", "전남광주통합특별시 · 광주권역", "1200000000", 35.1595, 126.8526),
   daejeon: queryable("daejeon", "대전광역시", "3000000000", 36.3504, 127.3845),
   ulsan: { ...queryable("ulsan", "울산광역시", "3100000000", 35.5383773, 129.3113596), statusLabel: "기존 서비스" },
   sejong: queryable("sejong", "세종특별자치시", "3611000000", 36.4801, 127.2892),
@@ -35,7 +42,7 @@ export const TRAFFIC_REGIONS: Record<TrafficRegionId, TrafficRegion> = {
   chungbuk: queryable("chungbuk", "충청북도", "4300000000", 36.6357, 127.4912),
   chungnam: queryable("chungnam", "충청남도", "4400000000", 36.6588, 126.6728),
   jeonbuk: queryable("jeonbuk", "전북특별자치도", "4500000000", 35.7175, 127.153),
-  jeonnam: queryable("jeonnam", "전라남도", "4600000000", 34.8679, 126.991),
+  jeonnam: queryable("jeonnam", "전남광주통합특별시 · 전남권역", "1200000000", 34.8679, 126.991),
   gyeongbuk: queryable("gyeongbuk", "경상북도", "4700000000", 36.4919, 128.8889),
   gyeongnam: queryable("gyeongnam", "경상남도", "4800000000", 35.4606, 128.2132),
   jeju: queryable("jeju", "제주특별자치도", "5000000000", 33.4996, 126.5312),
