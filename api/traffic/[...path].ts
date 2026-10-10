@@ -12,7 +12,27 @@ type Response = {
 
 const API_BASE_URL = "https://apis.data.go.kr/B551982/rti";
 const ALLOWED_PATHS = new Set(["crsrd_map_info", "tl_drct_info"]);
-const SUPPORTED_REGIONS = new Set(["1100000000", "3100000000"]);
+// Province-level traffic API region codes. Upstream coverage is still authoritative:
+// an allowed code does not imply that the provider has data for every area.
+const SUPPORTED_REGIONS = new Set([
+  "1100000000", // Seoul
+  "2600000000", // Busan
+  "2700000000", // Daegu
+  "2800000000", // Incheon
+  "2900000000", // Gwangju
+  "3000000000", // Daejeon
+  "3100000000", // Ulsan
+  "3611000000", // Sejong
+  "4100000000", // Gyeonggi
+  "4200000000", // Gangwon
+  "4300000000", // Chungbuk
+  "4400000000", // Chungnam
+  "4500000000", // Jeonbuk
+  "4600000000", // Jeonnam
+  "4700000000", // Gyeongbuk
+  "4800000000", // Gyeongnam
+  "5000000000", // Jeju
+]);
 const MAX_PAGE = 1000;
 const MAX_ROWS = 100;
 const REQUEST_TIMEOUT_MS = 9000;
@@ -96,13 +116,8 @@ export default async function handler(req: Request, res: Response) {
     return jsonResponse(res, 400, { error: "Invalid pagination parameters" });
   }
 
-  const requestServiceKey = stringParam(req.query.serviceKey);
-  const serviceKey =
-    process.env.TRAFFIC_API_SERVICE_KEY ||
-    process.env.TRAFFIC_API_KEY ||
-    process.env.VITE_TRAFFIC_API_KEY ||
-    process.env.VITE_DATA_API_SERVICE_KEY ||
-    requestServiceKey;
+  // Only server-side credentials are accepted; never forward a key supplied by a browser.
+  const serviceKey = getServiceKey();
   if (!serviceKey) {
     return jsonResponse(res, 500, { error: "Traffic API service key is not configured on the server" });
   }
@@ -127,7 +142,7 @@ export default async function handler(req: Request, res: Response) {
 
     const body = await upstream.text();
     if (!upstream.ok) {
-      console.error("[traffic proxy] upstream error", { endpoint: rawPath, status: upstream.status });
+      console.error("[traffic proxy] upstream error", { endpoint: rawPath, status: upstream.status, stdgCd });
       return jsonResponse(res, upstream.status >= 500 ? 502 : upstream.status, {
         error: "Traffic upstream request failed",
         upstreamStatus: upstream.status,
@@ -150,6 +165,7 @@ export default async function handler(req: Request, res: Response) {
     const timedOut = error instanceof DOMException && error.name === "AbortError";
     console.error("[traffic proxy] request failed", {
       endpoint: rawPath,
+      stdgCd,
       reason: timedOut ? "timeout" : error instanceof Error ? error.message : String(error),
     });
     return jsonResponse(res, 502, { error: timedOut ? "Traffic upstream timeout" : "Traffic upstream unavailable" });
