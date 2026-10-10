@@ -98,7 +98,7 @@ export default async function handler(req: Request, res: Response) {
     return jsonResponse(res, 429, { error: "Traffic API rate limit exceeded" });
   }
 
-  const rawPath = stringParam(req.query.path).replace(/^\\/+|\\/+$/g, "");
+  const rawPath = stringParam(req.query.path).replace(/^\/+|\/+$/g, "");
   if (!ALLOWED_PATHS.has(rawPath)) {
     return jsonResponse(res, 404, { error: "Unsupported traffic API endpoint" });
   }
