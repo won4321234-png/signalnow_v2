@@ -121,7 +121,7 @@ function AppInner() {
     }
   }, []);
 
-  useEffect(() => { configureTrafficRegion(regionId); }, []);
+  useEffect(() => { configureTrafficRegion(regionId); }, [regionId]);
 
   useEffect(() => {
     if (!selectedId) return;
