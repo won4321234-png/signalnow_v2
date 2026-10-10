@@ -34,7 +34,7 @@ export class TrafficApiRequestError extends Error {
 async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignalRecord>(options: TrafficApiClientOptions & { path: string }): Promise<TrafficApiPageResult<T>> {
   const { path, serviceKey, stdgCd, pageNo = 1, numOfRows = 100, basePath = TRAFFIC_API_BASE_PATH } = options;
   const normalizedServiceKey = normalizeServiceKey(serviceKey);
-  const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); directParams.set("stdgCd", stdgCd); if (options.crsrdId) directParams.set("crsrdId", options.crsrdId); directParams.set("serviceKey", normalizedServiceKey);
+  const directParams = new URLSearchParams(); directParams.set("pageNo", String(pageNo)); directParams.set("numOfRows", String(numOfRows)); directParams.set("type", "JSON"); if (stdgCd !== "ALL") directParams.set("stdgCd", stdgCd); if (options.crsrdId) directParams.set("crsrdId", options.crsrdId); directParams.set("serviceKey", normalizedServiceKey);
   const proxyParams = new URLSearchParams(directParams);
   const directUrl = `${TRAFFIC_API_DIRECT_BASE_URL}${path}?${directParams.toString()}`;
   const proxyUrl = new URL(`${basePath}${path}`, window.location.origin); proxyUrl.search = proxyParams.toString();
