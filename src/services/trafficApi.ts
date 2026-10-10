@@ -78,7 +78,6 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
   // "server-proxy" sentinel is not a real API credential and must never be
   // sent to the upstream provider as though it were one.
   const proxyFirst = !normalizedServiceKey || normalizedServiceKey === "server-proxy";
-  let directFailure: unknown;
   if (!proxyFirst) {
     try {
       result = await tryFetchAndParse(directUrl, "direct");
@@ -88,12 +87,10 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
       if (result.response.ok) {
         via = "direct";
       } else {
-        directFailure = new Error(`Direct traffic API returned HTTP ${result.response.status}`);
         via = "proxy";
         result = await tryFetchAndParse(proxyUrl.toString(), "proxy");
       }
     } catch (error) {
-      directFailure = error;
       via = "proxy";
       debugLog("proxy fallback start", { endpoint: path, reason: error instanceof Error ? error.message : String(error) });
       try {
