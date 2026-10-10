@@ -18,7 +18,7 @@ export interface TrafficRegion {
 }
 
 const queryable = (id: TrafficRegionId, name: string, stdgCd: string, lat: number, lng: number): TrafficRegion => ({
-  id, name, stdgCd, center: { lat, lng }, level: 9, availability: "active", statusLabel: "데이터 조회 가능",
+  id, name, stdgCd, center: { lat, lng }, level: 9, availability: "active", statusLabel: "연동 확인 필요",
 });
 
 export const TRAFFIC_REGIONS: Record<TrafficRegionId, TrafficRegion> = {
