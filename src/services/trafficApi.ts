@@ -74,15 +74,41 @@ async function fetchTrafficApiPage<T extends KlidIntersectionRecord | KlidSignal
 
   let result: { response: Response; payload: KlidResponseEnvelope | null };
   let via: "direct" | "proxy" = "direct";
-  try {
-    result = await tryFetchAndParse(directUrl, "direct");
-  } catch {
+  // When the browser has no public key, use the server proxy first. The
+  // "server-proxy" sentinel is not a real API credential and must never be
+  // sent to the upstream provider as though it were one.
+  const proxyFirst = !normalizedServiceKey || normalizedServiceKey === "server-proxy";
+  let directFailure: unknown;
+  if (!proxyFirst) {
+    try {
+      result = await tryFetchAndParse(directUrl, "direct");
+      // CORS-free HTTP errors (401/403/5xx) must also trigger the proxy.
+      // Previously only network exceptions did, causing valid server-side
+      // credentials to be bypassed whenever the direct endpoint returned HTTP.
+      if (result.response.ok) {
+        via = "direct";
+      } else {
+        directFailure = new Error(`Direct traffic API returned HTTP ${result.response.status}`);
+        via = "proxy";
+        result = await tryFetchAndParse(proxyUrl.toString(), "proxy");
+      }
+    } catch (error) {
+      directFailure = error;
+      via = "proxy";
+      debugLog("proxy fallback start", { endpoint: path, reason: error instanceof Error ? error.message : String(error) });
+      try {
+        result = await tryFetchAndParse(proxyUrl.toString(), "proxy");
+      } catch {
+        throw new TrafficApiRequestError("Traffic API direct and proxy requests failed.", { apiStatus: "network-error", via: "proxy", responseReceived: false, itemCount: 0, sampleIds: [] });
+      }
+    }
+  } else {
     via = "proxy";
-    debugLog("proxy fallback start", { endpoint: path });
+    debugLog("proxy-first request", { endpoint: path, reason: "server-side credential required" });
     try {
       result = await tryFetchAndParse(proxyUrl.toString(), "proxy");
-    } catch (error) {
-      throw new TrafficApiRequestError("Traffic API direct and proxy requests failed.", { apiStatus: "network-error", via: "proxy", responseReceived: false, itemCount: 0, sampleIds: [] });
+    } catch {
+      throw new TrafficApiRequestError("Traffic API proxy request failed.", { apiStatus: "network-error", via: "proxy", responseReceived: false, itemCount: 0, sampleIds: [] });
     }
   }
 
